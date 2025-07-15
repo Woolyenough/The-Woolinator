@@ -1,0 +1,8 @@
+.env
+woolinator.log
+.venv/
+.vscode/
+.idea/
+**/__pycache__/
+TODO.md
+CHANGES.md
