@@ -115,7 +115,8 @@ class HelpCommand(commands.HelpCommand):
 
         if app_cmd:
             arg_descs = '\n'.join([f'**`{p.name}`**: {p.description}' for p in app_cmd.parameters])
-            embed.add_field(name='Parameter Descriptions', value=arg_descs)
+            if arg_descs:
+                embed.add_field(name='Parameter Descriptions', value=arg_descs)
 
         signature = [command.qualified_name, ]
         for name, param in command.clean_params.items():

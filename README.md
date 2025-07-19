@@ -1,5 +1,5 @@
 # The Woolinator
-A personal Discord bot written in Python 3.12 using the discord.py API wrapper
+A multipurpose, personal Discord bot written in Python 3.12 using the discord.py API wrapper
 
 ## Running an Instance
 > [!WARNING]
@@ -8,15 +8,16 @@ A personal Discord bot written in Python 3.12 using the discord.py API wrapper
 > [!NOTE]
 > The version here may not reflect what the bot is currently running. I tend to test changes before pushing to GitHub.
 
-This project isn't really designed to work out of the box, but serves as an example which can hopefully help others with their own projects. This project is not really designed to work out-of-the-box, but you are welcome to adapt it for your purposes. Nonetheless, you can try and run an instance yourself.
+This project isn't really intended to be forked and used as-is, but serves as an example which can hopefully help others with their own projects. Nonetheless, you are welcome to try and run an instance yourself.
 
 To do this, you will need:
-- A MariaDB/MySQL server (for persistent data storage)
+- A MariaDB/MySQL server
 - A Discord bot application (https://discord.com/developers/applications)
+- Python 3.12.x
 
 To configure, copy `.env.TEMPLATE` into `.env`, and modify the values inside it.
 
-Then, run with Python 3.12 (Linux & Bash):
+Then, run with Python (on Linux, using Bash):
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -32,7 +33,7 @@ The bot is only in servers that I like. Here are a few of them:
 If you would like to have it added to your server, you may contact me: `@woolyenough`
 
 ## Attribution
-- [discord.py](https://github.com/Rapptz/discord.py) - a Discord API wrapper
+- [discord.py](https://github.com/Rapptz/discord.py) - a Discord API wrapper which was used
 - [R. Danny](https://github.com/Rapptz/RoboDanny) - many of The Woolinator's features & design choices were inspired by the R. Danny bot
 
 ## Licence

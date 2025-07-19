@@ -28,14 +28,6 @@ class Misc(commands.Cog, name='Miscellaneous', description='Uncategorised stuff'
 
         self.process = psutil.Process()
 
-        # For now, there's only one status the bot will have
-        self.activities = itertools.cycle([
-            discord.Activity(
-                type=discord.ActivityType.watching,
-                name=f'{len(self.bot.users)} users in {len(self.bot.guilds)} guilds 🤙😎'
-            ),
-        ])
-
         # Available list obtained from `neofetch --help`, and then '--ascii_distro' flag info
         with open('resources/os-logos.txt', 'r') as f:
             self.available_os_ascii = f.read().strip('"').split(', ')
@@ -61,7 +53,12 @@ class Misc(commands.Cog, name='Miscellaneous', description='Uncategorised stuff'
         """ A task to change the bot status at intervals. """
 
         await self.bot.wait_until_ready()
-        await self.bot.change_presence(activity=next(self.activities))
+        await self.bot.change_presence(
+            activity=discord.Activity(
+                type=discord.ActivityType.watching,
+                name=f'{len(self.bot.users)} users in {len(self.bot.guilds)} guilds 🤙😎'
+            )
+        )
 
     @commands.hybrid_command(name='end-of-10', description='Windows 10 support countdown')
     async def end_of_10(self, ctx: Context):
