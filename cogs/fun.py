@@ -60,7 +60,15 @@ class Fun(commands.Cog, name='Fun', description='Welcome to the house of fun'):
                 url=entry['permalink']
             )
 
-            embed.set_footer(text=f'Written on: {datetime.strptime(entry['written_on'], '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%d/%m/%Y at %H:%M:%S (UTC)')}  ▪  👍 {entry['thumbs_up']} - 👎 {entry['thumbs_down']}')
+            def parse_written_on(timestamp: str) -> datetime:
+                # Try parsing with microseconds first
+                try:
+                    return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%S.%fZ')
+                except ValueError:
+                    # Otherwise, exclude it
+                    return datetime.strptime(timestamp, '%Y-%m-%dT%H:%M:%SZ')
+
+            embed.set_footer(text=f'Written on: {parse_written_on(entry['written_on']).strftime('%d/%m/%Y at %H:%M:%S (UTC)')}  ▪  👍 {entry['thumbs_up']} - 👎 {entry['thumbs_down']}')
             embed.set_author(name=f'Posted by {entry['author']}')
             embeds_to_paginate.append(embed)
 
