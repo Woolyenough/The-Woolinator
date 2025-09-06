@@ -316,10 +316,7 @@ class Moderation(commands.Cog, name='Moderation', description='Tools to help mod
 
         await ctx.typing()
 
-        try:
-            await member.timeout(None, reason=f'Mod: {ctx.author.name} | Reason: {reason}')
-        except discord.HTTPException:
-            return await ctx.reply('There was an error removing the user\'s timeout', ephemeral=True)
+        await member.timeout(None, reason=f'Mod: {ctx.author.name} | Reason: {reason}')
 
         sent = await self.send_dm_victim(ctx=ctx, action='unmuted', victim=member, colour=0x83f590, info=[
             f'**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})',
@@ -359,10 +356,7 @@ class Moderation(commands.Cog, name='Moderation', description='Tools to help mod
 
         await ctx.typing()
 
-        try:
-            await ctx.guild.ban(member, reason=f'Mod: {ctx.author.name} | Reason: {reason}', delete_message_days=7 if delete else 0)
-        except discord.HTTPException:
-            return await ctx.reply('There was an error banning the user', ephemeral=True)
+        await ctx.guild.ban(member, reason=f'Mod: {ctx.author.name} | Reason: {reason}', delete_message_days=7 if delete else 0)
 
         sent = await self.send_dm_victim(ctx=ctx, action='banned', victim=member, colour=0xd60f78, info=[
             f'**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})',
@@ -383,12 +377,11 @@ class Moderation(commands.Cog, name='Moderation', description='Tools to help mod
     @app_commands.describe(user='The user you want to unban', reason='The reason for the unban')
     async def unban(self, ctx: Context, user: discord.User, *, reason: commands.Range[str, 1, 400] = 'No reason'):
         await ctx.typing()
+
         try:
             await ctx.guild.unban(user, reason=f'Mod: {ctx.author.name} | Reason: {reason}')
         except discord.NotFound:
             return await ctx.reply('I could not find that unban... are you sure that user is banned?', ephemeral=True)
-        except discord.HTTPException:
-            return await ctx.reply('There was an error unbanning the user', ephemeral=True)
 
         sent = await self.send_dm_victim(ctx=ctx, action='unbanned', victim=user, colour=0x83f590, info=[
             f'**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})',
