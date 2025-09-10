@@ -225,6 +225,9 @@ class Moderation(commands.Cog, name='Moderation', description='Tools to help mod
         if member.guild_permissions.manage_guild:
             return await ctx.reply('You can\'t kick members with the `manage_guild` permission', ephemeral=True)
 
+        if ctx.guild.me.top_role <= member.top_role:
+            return await ctx.reply("I can't kick this member due to role hierarchy (their top role is higher than mine)", ephemeral=True)
+
         await ctx.typing()
 
         await ctx.guild.kick(member, reason=f'Mod: {ctx.author.name} | Reason: {reason}')
@@ -247,6 +250,9 @@ class Moderation(commands.Cog, name='Moderation', description='Tools to help mod
 
         if member.guild_permissions.manage_guild:
             return await ctx.reply('You can\'t mute members with the `manage_guild` permission', ephemeral=True)
+
+        if ctx.guild.me.top_role <= member.top_role:
+            return await ctx.reply("I can't mute this member due to role hierarchy (their top role is higher than mine)", ephemeral=True)
 
         duration, invalid_formats, too_long = convert_time_human_to_delta(duration)
 
@@ -314,6 +320,9 @@ class Moderation(commands.Cog, name='Moderation', description='Tools to help mod
         if not member.is_timed_out():
             return await ctx.reply('This user is not timed out!', ephemeral=True)
 
+        if ctx.guild.me.top_role <= member.top_role:
+            return await ctx.reply("I can't remove this member's timeout due to role hierarchy (their top role is higher than mine)", ephemeral=True)
+
         await ctx.typing()
 
         await member.timeout(None, reason=f'Mod: {ctx.author.name} | Reason: {reason}')
@@ -336,6 +345,9 @@ class Moderation(commands.Cog, name='Moderation', description='Tools to help mod
         if isinstance(member, discord.Member):
             if member.guild_permissions.manage_guild:
                 return await ctx.reply('You can\'t ban members with the `manage_guild` permission', ephemeral=True)
+
+            if ctx.guild.me.top_role <= member.top_role:
+                return await ctx.reply("I can't ban this member due to role hierarchy (their top role is higher than mine)", ephemeral=True)
 
         is_banned = False
         try:
