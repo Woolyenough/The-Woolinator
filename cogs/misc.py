@@ -115,7 +115,7 @@ class Misc(commands.Cog, name='Miscellaneous', description='Uncategorised stuff'
 
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
-        if after.guild:
+        if after.guild and before.content != after.content:
             self.edited_messages[before.channel.id] = (before, after)
 
     @commands.hybrid_command(name='snipe', description='Check the last deleted message in the current channel')
@@ -130,6 +130,14 @@ class Misc(commands.Cog, name='Miscellaneous', description='Uncategorised stuff'
         
         embed = discord.Embed(description=m.content, timestamp=m.created_at, colour=0xf93838)
         embed.set_author(name=f'@{m.author.name}', icon_url=m.author.display_avatar.url)
+
+        if m.stickers:
+            embed.set_image(url=m.stickers[0].url)
+
+        if m.attachments:
+            a = [f"- [{a.filename}]({a.proxy_url})" for a in m.attachments]
+            embed.add_field(name="Attachments", value='\n'.join(a))
+
         await ctx.reply(embed=embed)
 
     @commands.hybrid_command(name='esnipe', aliases=['editsnipe'], description='Check the last edited message in the current channel')
