@@ -23,6 +23,13 @@ def trim_str(string: str, max_length: int) -> str:
     if len(string) > max_length:
         return string[:max_length-3] + '...'
     return string
+
+def plur(val: int) -> str:
+    """ Returns 's' if the value is 2 or more or 0. """
+    if val == 0 or val >= 2:
+        return 's'
+    else:
+        return ''
     
 
 def convert_time_human_to_delta(when: str) -> tuple[relativedelta, list[str], list[str]]:
@@ -53,49 +60,49 @@ def convert_time_human_to_delta(when: str) -> tuple[relativedelta, list[str], li
 
     when: list[str] = when.replace('and', ',').replace('&', ',').replace('+', ',').strip(' ').split(',')
     for d in when:
-        match = re.match(r'(\d+)(\D+)', d)  # (\d+) captures digits, (\D+) captures non-digits
+        match = re.match(r"(\d+)(\D+)", d)  # (\d+) captures digits, (\D+) captures non-digits
 
         if match:
             value = int(match.group(1))  # The number (value)
             unit = match.group(2).lower()  # The unit (characters)
 
-            if 'seconds'.startswith(unit) or unit == 'secs':
+            if "seconds".startswith(unit) or unit == "secs":
                 if value > 4 * 12 * 30 * 24 * 60 * 60:
                     too_long.append(d)
                     continue
                 duration += relativedelta(seconds=value)
 
-            elif 'minutes'.startswith(unit) or unit == 'mins':
+            elif "minutes".startswith(unit) or unit == "mins":
                 if value > 4 * 12 * 30 * 24 * 60:
                     too_long.append(d)
                     continue
                 duration += relativedelta(minutes=value)
 
-            elif 'hours'.startswith(unit) or unit == 'hrs' or unit == 'hr':
+            elif "hours".startswith(unit) or unit == "hrs" or unit == "hr":
                 if value > 4 * 12 * 30 * 24:
                     too_long.append(d)
                     continue
                 duration += relativedelta(hours=value)
 
-            elif 'days'.startswith(unit):
+            elif "days".startswith(unit):
                 if value > 4 * 12 * 30:
                     too_long.append(d)
                     continue
                 duration += relativedelta(days=value)
 
-            elif 'weeks'.startswith(unit):
+            elif "weeks".startswith(unit):
                 if value > 4 * 12 * 4:
                     too_long.append(d)
                     continue
                 duration += relativedelta(weeks=value)
 
-            elif 'months'.startswith(unit):
+            elif "months".startswith(unit):
                 if value > 4 * 12:
                     too_long.append(d)
                     continue
                 duration += relativedelta(months=value)
 
-            elif 'years'.startswith(unit) or unit == 'yrs' or unit == 'yr':
+            elif "years".startswith(unit) or unit == "yrs" or unit == "yr":
                 if value > 4:
                     too_long.append(d)
                     continue

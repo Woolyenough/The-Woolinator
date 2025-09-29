@@ -19,21 +19,21 @@ class YesOrNo(discord.ui.View):
         self.message = None
         self.delete_after = delete_after
 
-    @discord.ui.button(label='Yuh uh', emoji='\U0001f44d', style=discord.ButtonStyle.green)
+    @discord.ui.button(label="Yuh uh", emoji="\U0001f44d", style=discord.ButtonStyle.green)
     async def yes(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         self.value = True
         self.stop()
 
-    @discord.ui.button(label='Nuh uh', emoji='\U0001f44e', style=discord.ButtonStyle.red)
+    @discord.ui.button(label="Nuh uh", emoji="\U0001f44e", style=discord.ButtonStyle.red)
     async def no(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content='Aborted.', embed=None, view=None, delete_after=20 if self.delete_after else None)
+        await interaction.response.edit_message(content="Aborted.", embed=None, view=None, delete_after=20 if self.delete_after else None)
         self.value = False
         self.stop()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if self.author_id and interaction.user.id != self.author_id:
-            await interaction.response.send_message('not your button to press ,-,', ephemeral=True)
+            await interaction.response.send_message("not your button to press ,-,", ephemeral=True)
             return False
         return True
 

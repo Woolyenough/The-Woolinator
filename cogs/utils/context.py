@@ -17,8 +17,8 @@ class Context(commands.Context):
 
     async def react(self, state: bool = True) -> None:
         lookup = {
-            True: '\U0001f44c',  # 👌
-            False: '\U0001f6ab',  # 🚫
+            True: "\U0001f44c",  # 👌
+            False: "\U0001f6ab",  # 🚫
         }
         try:
             await self.message.add_reaction(lookup.get(state))
@@ -28,14 +28,14 @@ class Context(commands.Context):
     async def send(self, content: str | None = None, **kwargs) -> discord.Message:
         limit = 2000
         if content and len(content) > limit:
-            suffix = '\n\n [ Message cropped ]'
+            suffix = "\n\n [ Message cropped ]"
             content = content[:limit - len(suffix)] + suffix
         return await super().send(content, **kwargs)
 
     async def reply(self, content: str | None = None, **kwargs) -> discord.Message:
         limit = 2000
         if content and len(content) > limit:
-            suffix = '\n\n [ Message cropped ]'
+            suffix = "\n\n [ Message cropped ]"
             content = content[:limit - len(suffix)] + suffix
 
         try:

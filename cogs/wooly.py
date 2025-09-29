@@ -46,19 +46,19 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
             result = await self.bot.loop.run_in_executor(None, process.communicate)
         return [output.decode() for output in result]
 
-    @commands.command(name='sync', description="Sync the 'App Command Tree' with Discord")
+    @commands.command(name="sync", description="Sync the 'App Command Tree' with Discord")
     async def sync(self, ctx: Context) -> None:
         synced = await self.bot.tree.sync()
-        await ctx.reply(f'Synced {len(synced)} slash command in {len(self.bot.guilds)} guilds.')
+        await ctx.reply(f"Synced {len(synced)} slash command in {len(self.bot.guilds)} guilds.")
 
-    @commands.command(name='sql', description='Execute SQL in the bot database')
+    @commands.command(name="sql", description="Execute SQL in the bot database")
     async def sql(self, ctx: Context, *, statement: str):
         async with self.bot.get_cursor() as cursor:
             code: int = await cursor.execute(statement)
             rows: tuple[tuple[Any]] = await cursor.fetchall()
 
         lines = '\n'.join([str(r) for r in rows])
-        await ctx.reply(f'Return: {code}```sql\n{lines}```')
+        await ctx.reply(f"Return: {code}```sql\n{lines}```")
 
     def remove_backticks(self, content: str) -> str:
         """ Removes ```py\n ... ``` """
@@ -70,28 +70,28 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
                 return '\n'.join(content.split('\n')[2:-1])
         return content
 
-    @commands.command(name='log', description='Upload woolinator.log')
+    @commands.command(name="log", description="Upload woolinator.log")
     async def log(self, ctx: Context):
-        file = 'woolinator.log'
-        await ctx.reply(f'`{file}`:', file=discord.File(fp=file, filename=file))
+        file = "woolinator.log"
+        await ctx.reply(f"`{file}`:", file=discord.File(fp=file, filename=file))
 
-    @commands.command(name='eval', description='Evaluate some Python code')
+    @commands.command(name="eval", description="Evaluate some Python code")
     async def eval(self, ctx: Context, *, code: str):
         env = {
-            'self': self,
-            'bot': self.bot,
-            'ctx': ctx
+            "self": self,
+            "bot": self.bot,
+            "ctx": ctx
         }
 
         env.update(globals())
 
         code = self.remove_backticks(code)
-        code = f'async def _eval_func():\n{textwrap.indent(code, "    ")}'
+        code = f"async def _eval_func():\n{textwrap.indent(code, '    ')}"
 
         try:
             exec(code, env)
         except Exception as e:
-            return await ctx.send(f'```py\n{e.__class__.__name__}: {e}\n```')
+            return await ctx.send(f"```py\n{e.__class__.__name__}: {e}\n```")
 
         func = env['_eval_func']
         stdout = io.StringIO()
@@ -102,7 +102,7 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
         except Exception:
             output = stdout.getvalue()
             error = traceback.format_exc()
-            return await ctx.send(f'```py\n{output}{error}\n```')
+            return await ctx.send(f"```py\n{output}{error}\n```")
 
         output = stdout.getvalue()
         try:
@@ -112,49 +112,50 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
 
         if result is None:
             if output:
-                await ctx.send(f'```py\n{output}\n```')
+                await ctx.send(f"```py\n{output}\n```")
         else:
-            await ctx.send(f'```py\n{output}{result}\n```')
+            await ctx.send(f"```py\n{output}{result}\n```")
 
-    @commands.group(name='git', description='Run git commands', invoke_without_command=True)
+    @commands.group(name="git", description="Run git commands", invoke_without_command=True)
     async def git(self, ctx: Context):
-        args = ctx.message.content.replace(f'{ctx.prefix}git', '', 1).strip()
+        args = ctx.message.content.replace(f"{ctx.prefix}git", '', 1).strip()
 
         if not args:
-            return await ctx.reply('Please specify a git subcommand (e.g. `git pull`).')
+            return await ctx.reply("Please specify a git subcommand (e.g. `git pull`).")
 
-        stdout, stderr = await self.run_process(f'git {args}')
+        stdout, stderr = await self.run_process(f"git {args}")
         stdout = escape_md(stdout) if stdout else ''
         stderr = escape_md(stderr) if stderr else ''
 
         project_folder = __file__.split('/')[-3]
-        branch = (await self.run_process('git branch'))[0].strip('\n* ')
-        command_display = f'-# **{project_folder} ({branch})#** git {escape_md(args)}'
+        branch = (await self.run_process("git branch"))[0].strip('\n* ')
+        command_display = f"-# **{project_folder} ({branch})#** git {escape_md(args)}"
 
         if not (stdout or stderr):
-            embed = discord.Embed(description='Successfully ran, but empty output.', colour=discord.Colour.orange())
+            embed = discord.Embed(description="Successfully ran, but empty output.", colour=discord.Colour.orange())
         else:
-            embed = discord.Embed(description=f'{stderr}\n\n{stdout}', colour=0xCCCCCC)
+            embed = discord.Embed(description=f"{stderr}\n\n{stdout}", colour=0xCCCCCC)
 
         await ctx.reply(command_display, embed=embed)
 
-    @git.command(name='sync', aliases=['s'], description='git pull and then reload modified modules')
+    @git.command(name="sync", aliases=["s"], description="git pull and then reload modified modules")
     async def git_sync(self, ctx: Context):
-        stdout, stderr = await self.run_process('git pull')
+        stdout, stderr = await self.run_process("git pull")
 
-        if stdout.startswith('Already up to date.'):
+        if stdout.startswith("Already up to date."):
             await ctx.send(stdout)
             return
 
-        git_pull_output = f'```ansi\n{stderr}```\n\n```ansi\n{stdout}```'
+        git_pull_output = f"```ansi\n{stderr}```\n\n```ansi\n{stdout}```"
         modules = self.find_modules_from_git(stdout)
     
         if len(modules) == 0:
-            await ctx.reply(f'Latest commits were pulled, but no modules to reload:{git_pull_output}')
+            await ctx.reply(f"Latest commits were pulled, but no modules to reload:{git_pull_output}")
             return
 
         statuses = await self.reload_modules(modules)
-        await ctx.reply(git_pull_output + '\n\n**Updated modules:**\n' + '\n'.join(f'{i}. `{module}`: {status}' for i, (status, module) in enumerate(statuses, start=1)))
+        modules = '\n'.join(f'{i}. `{module}`: {status}' for i, (status, module) in enumerate(statuses, start=1))
+        await ctx.reply(git_pull_output + "\n\n**Updated modules:**\n" + modules)
 
     async def reload_or_load_extension(self, extension: str) -> bool:
         """ Reload the parsed extension - or load, if not already loaded. """
@@ -169,15 +170,15 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
     def find_modules_from_git(self, output: str) -> list[tuple[int, str]]:
         """ Return a list of modules & submodules that were modified. """
 
-        git_pull_regex = re.compile(r'\s*(?P<filename>.+?)\s*\|\s*[0-9]+\s*[+-]+')
+        git_pull_regex = re.compile(r"\s*(?P<filename>.+?)\s*\|\s*[0-9]+\s*[+-]+")
         files = git_pull_regex.findall(output)
         ret: list[tuple[int, str]] = []
         for file in files:
             root, ext = os.path.splitext(file)
-            if ext != '.py':
+            if ext != ".py":
                 continue
 
-            if root.startswith('cogs/'):
+            if root.startswith("cogs/"):
                 ret.append((root.count('/') - 1, root.replace('/', '.')))
 
         # Submodules should be reloaded first
@@ -189,15 +190,15 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
 
         ret: list[tuple[int, str]] = []
 
-        prev_active_modules = [mod for mod in sys.modules.keys() if mod.startswith('cog') and sys.modules[mod].__file__]
+        prev_active_modules = [mod for mod in sys.modules.keys() if mod.startswith("cog") and sys.modules[mod].__file__]
 
         project_path = '.'
-        modules = glob.glob(os.path.join(project_path, '**', '*.py'), recursive=True)
+        modules = glob.glob(os.path.join(project_path, "**", "*.py"), recursive=True)
         modules = [os.path.relpath(m, project_path) for m in modules]  # Get relative paths
 
         for module in modules:
-            module = module[:-3] if module.endswith('.py') else module  # remove .py ending, if exists
-            if module.startswith('cogs/'):
+            module = module[:-3] if module.endswith(".py") else module  # remove .py ending, if exists
+            if module.startswith("cogs/"):
                 ret.append((module.count('/') - 1, module.replace('/', '.')))
 
         # Add any modules that have been removed, so that they can be unloaded
@@ -229,7 +230,7 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
 
         # Helper function to strip 'cogs.' prefix
         def s(module: str) -> str:
-            return module[5:] if module.startswith('cogs.') else module
+            return module[5:] if module.startswith("cogs.") else module
 
         statuses = []
         for is_submodule, module in modules:
@@ -237,25 +238,23 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
             # Submodules are in 'cogs.utils'; modules are in 'cogs'
             if is_submodule:
                 try:
-                    # Try to get the actual module object from sys.modules
                     actual_module = sys.modules[module]
                 except KeyError:
                     # If the module is not found in sys.modules, it hasn't been loaded yet
-                    statuses.append(('<a:sparkles:1324914202497777694> : :jigsaw:', s(module)))
+                    statuses.append(("<a:sparkles:1324914202497777694> : :jigsaw:", s(module)))
                 else:
                     try:
                         importlib.reload(actual_module)
                     except ModuleNotFoundError:
                         # If the module was not found, clean up sys.modules
                         del sys.modules[module]
-                        statuses.append((':wastebasket: : :jigsaw:', s(module)))
+                        statuses.append((":wastebasket: : :jigsaw:", s(module)))
                     except Exception:
-                        # Catch any other exceptions during reload and log them
-                        statuses.append((tick(False) + ' : :jigsaw:', s(module)))
-                        log.exception('Failed to reload submodule %s', module)
+                        statuses.append((tick(False) + " : :jigsaw:", s(module)))
+                        log.exception("Failed to reload submodule %s", module)
                     else:
                         # Successful reload
-                        statuses.append((tick(True) + ' : :jigsaw:', s(module)))
+                        statuses.append((tick(True) + " : :jigsaw:", s(module)))
 
             # Handle cogs
             else:
@@ -263,27 +262,25 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
                     is_new = await self.reload_or_load_extension(module)
                 except commands.ExtensionNotFound:
                     # If not found, unload it
-                    statuses.append((':wastebasket: : :gear:', s(module)))
+                    statuses.append((":wastebasket: : :gear:", s(module)))
                     await self.bot.unload_extension(module)
                 except commands.ExtensionError:
-                    # If an error, log it
-                    statuses.append((tick(False) + ' : :gear:', s(module)))
-                    log.exception('Failed to reload extension %s', module)
+                    statuses.append((tick(False) + " : :gear:", s(module)))
+                    log.exception("Failed to reload extension %s", module)
                 else:
-                    # If the extension was successfully reloaded or loaded, indicate success
                     if is_new:
-                        statuses.append(('<a:sparkles:1324914202497777694> : :gear:', s(module)))
+                        statuses.append(("<a:sparkles:1324914202497777694> : :gear:", s(module)))
                     else:
-                        statuses.append((tick(True) + ' : :gear:', s(module)))
+                        statuses.append((tick(True) + " : :gear:", s(module)))
         return statuses
 
-    @commands.command(name='reload', description='reload any local changes')
+    @commands.command(name="reload", description="reload any local changes")
     async def reload(self, ctx: Context):
         statuses = await self.reload_modules()
-        await ctx.reply('**Module Statuses:**\n' +
+        await ctx.reply("**Module Statuses:**\n" +
                                     '\n'.join(f'{status}`{module}`' for status, module in statuses))
 
-    @commands.command(name='sudo', description='Run a command as another user')
+    @commands.command(name="sudo", description="Run a command as another user")
     @commands.guild_only()
     async def sudo(self, ctx: Context, channel: discord.TextChannel|None, user: discord.Member|discord.User, *, command: str,):
         msg = copy.copy(ctx.message)

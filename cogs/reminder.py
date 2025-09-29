@@ -35,7 +35,7 @@ class RemindersRemoveDropdown(discord.ui.Select):
             #time_expire = reminder[2]
             content = trim_str(reminder[3], 32)
 
-            options.append(discord.SelectOption(label=f'Reminder #{i}', description=content, value=_id))
+            options.append(discord.SelectOption(label=f"Reminder #{i}", description=content, value=_id))
 
         super().__init__(placeholder='...', options=options, min_values=1, max_values=len(reminders))
         self.reminders_to_remove = []
@@ -57,15 +57,15 @@ class RemindersListView(discord.ui.View):
         self.message = None
         self.asyncio_timers = asyncio_timers
 
-    @discord.ui.button(label='Delete reminder(s)', emoji='\U0001f5d1', style=discord.ButtonStyle.red)
+    @discord.ui.button(label="Delete reminder(s)", emoji="\U0001f5d1", style=discord.ButtonStyle.red)
     async def delete_reminder(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = RemindersRemoveView(reminders=self.reminders)
-        await interaction.response.send_message('Please select the reminder(s) you want to delete:', view=view, ephemeral=True)
+        await interaction.response.send_message("Please select the reminder(s) you want to delete:", view=view, ephemeral=True)
         await view.wait()
         await interaction.delete_original_response()
 
         embed = discord.Embed(colour=discord.Colour.random())
-        embed.set_author(name=interaction.user.name + '\'s reminders', icon_url=interaction.user.display_avatar.url)
+        embed.set_author(name=interaction.user.name + "'s reminders", icon_url=interaction.user.display_avatar.url)
         for i, reminder in enumerate(self.reminders, start=1):
             _id = reminder[0]
             if _id in view.reminders_to_remove: continue
@@ -73,15 +73,15 @@ class RemindersListView(discord.ui.View):
             time_expire = reminder[2]
             content = trim_str(reminder[3], 900)
 
-            embed.add_field(name=f'Reminder #{i}',
-                            value=f'Created: <t:{round(time_created.timestamp())}:F>\nExpires: <t:{round(time_expire.timestamp())}:F> (<t:{round(time_expire.timestamp())}:R>)\nContent: {content}',
+            embed.add_field(name=f"Reminder #{i}",
+                            value=f"Created: <t:{round(time_created.timestamp())}:F>\nExpires: <t:{round(time_expire.timestamp())}:F> (<t:{round(time_expire.timestamp())}:R>)\nContent: {content}",
                             inline=False)
 
         await interaction.message.edit(embed=embed)
 
         async with self.bot.get_cursor() as cursor:
             for reminder_id in view.reminders_to_remove:
-                await cursor.execute('DELETE FROM reminders WHERE id = %s', (reminder_id,))
+                await cursor.execute("DELETE FROM reminders WHERE id = %s", (reminder_id,))
 
                 task: asyncio.Task|None = self.asyncio_timers.get(reminder_id, None)
                 if task:
@@ -96,12 +96,12 @@ class RemindersListView(discord.ui.View):
         
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if self.author_id and interaction.user.id != self.author_id:
-            await interaction.response.send_message('Not your button to press .-.', ephemeral=True)
+            await interaction.response.send_message("Not your button to press .-.", ephemeral=True)
             return False
         return True
 
 
-class Reminder(commands.Cog, name='Reminders', description='Never forget a thing again'):
+class Reminder(commands.Cog, name="Reminders", description="Never forget a thing again"):
 
     def __init__(self, bot: Woolinator) -> None:
         self.bot: Woolinator = bot
@@ -121,7 +121,7 @@ class Reminder(commands.Cog, name='Reminders', description='Never forget a thing
 
     @property
     def emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name='reminder',id=1337677195694575626)
+        return discord.PartialEmoji(name="reminder",id=1337677195694575626)
 
     @tasks.loop(minutes=10)
     async def sync_asyncio_timers(self):
@@ -130,9 +130,11 @@ class Reminder(commands.Cog, name='Reminders', description='Never forget a thing
         self.asyncio_timers.clear()
 
         async with self.bot.get_cursor() as cursor:
-            await cursor.execute(
-                'SELECT id,user_id,time_created,time_expire,content,is_dm,link FROM reminders WHERE time_expire < %s',
-                (datetime.now() + timedelta(minutes=self.update_interval),))
+            await cursor.execute('''
+                    SELECT id, user_id, time_created, time_expire, content, is_dm, link
+                    FROM reminders
+                    WHERE time_expire < %s
+                ''', (datetime.now() + timedelta(minutes=self.update_interval),))
             reminders = await cursor.fetchall()
 
         for reminder in reminders:
@@ -145,7 +147,7 @@ class Reminder(commands.Cog, name='Reminders', description='Never forget a thing
         await asyncio.sleep((time_expire - datetime.now()).total_seconds())
 
         async with self.bot.get_cursor() as cursor:
-            await cursor.execute('DELETE FROM reminders WHERE id = %s', (reminder[0],))
+            await cursor.execute("DELETE FROM reminders WHERE id = %s", (reminder[0],))
 
         id: int = reminder[0]
         user_id: str = reminder[1]
@@ -159,12 +161,12 @@ class Reminder(commands.Cog, name='Reminders', description='Never forget a thing
 
         if user is None:
             log.warning(
-                f'User {user_id} was not found to remind them for a reminder set on {time_created.strftime('%Y/%m/%d %H:%M:%S')}')
+                f"User {user_id} was not found to remind them for a reminder set on {time_created.strftime('%Y/%m/%d %H:%M:%S')}")
             return
 
-        message = f'{user.mention}, your reminder that you set on <t:{round(time_created.timestamp())}:f> has expired <t:{round(time_expire.timestamp())}:R>!\n\nHere\'s what you wanted to be reminded of:\n>>> {content}'
+        message = f"{user.mention}, your reminder that you set on <t:{round(time_created.timestamp())}:f> has expired <t:{round(time_expire.timestamp())}:R>!\n\nHere's what you wanted to be reminded of:\n>>> {content}"
         view = discord.ui.View()
-        view.add_item(discord.ui.Button(style=discord.ButtonStyle.link, label='Jump to when the reminder was made', url=link))
+        view.add_item(discord.ui.Button(style=discord.ButtonStyle.link, label="Jump to when the reminder was made", url=link))
 
         failed_to_send = False
         if not is_dm:
@@ -196,12 +198,12 @@ class Reminder(commands.Cog, name='Reminders', description='Never forget a thing
         if task:
             del self.asyncio_timers[id]
 
-    @commands.hybrid_command(name='remindme', aliases=['reminder'], description='Set a reminder')
+    @commands.hybrid_command(name="remindme", aliases=["reminder"], description="Set a reminder")
     @commands.cooldown(4, 10.5, commands.BucketType.user)  # each reminder can send 2 messages
     @app_commands.describe(when="When you want to be reminded; e.g., '1d, 10 days, 5secs' (separated by comma)",
-                           what='What you want to be reminded of')
+                           what="What you want to be reminded of")
     async def remindme(self, ctx: Context, when: commands.Range[str, 2, 50], *,
-                       what: commands.Range[str, 1, 1234] = '...nothing?'):
+                       what: commands.Range[str, 1, 1234] = "...nothing?"):
 
         what = await commands.clean_content(use_nicknames=False).convert(ctx, what)
         now = datetime.now()
@@ -213,19 +215,19 @@ class Reminder(commands.Cog, name='Reminders', description='Never forget a thing
             if invalid_formats:
                 invalid_list = ''
                 for i, invalid_format in enumerate(invalid_formats, start=1):
-                    invalid_list += f'{i}. {trim_str(invalid_format, 15)}\n'
+                    invalid_list += f"{i}. {trim_str(invalid_format, 15)}\n"
 
                 if invalid_list:
-                    invalid_message = f'Invalid time format{'' if len(invalid_formats) == 1 else 's'}:\n{invalid_list}'
+                    invalid_message = f"Invalid time format{'' if len(invalid_formats) == 1 else 's'}:\n{invalid_list}"
 
             too_long_message = ''
             if too_long:
                 too_long_list = ''
                 for i, too_long_values in enumerate(too_long, start=1):
-                    too_long_list += f'{i}. {trim_str(too_long_values, 15)}\n'
+                    too_long_list += f"{i}. {trim_str(too_long_values, 15)}\n"
 
                 if too_long_list:
-                    too_long_message = f'Time format{' that is too long' if len(too_long) == 1 else 's that are too long'} :\n{too_long_list}'
+                    too_long_message = f"Time format{' that is too long' if len(too_long) == 1 else 's that are too long'} :\n{too_long_list}"
 
             return await ctx.reply('\n\n'.join([invalid_message, too_long_message]), ephemeral=True)
 
@@ -233,49 +235,53 @@ class Reminder(commands.Cog, name='Reminders', description='Never forget a thing
 
         if when > now + relativedelta(years=5, seconds=1):
             if when > now + relativedelta(years=20):
-                return await ctx.reply('now that\'s just WAYYY too far into the future...', ephemeral=True)
-            return await ctx.reply('that\'s too far into the future... please try less than 4 years!', ephemeral=True)
+                return await ctx.reply("now that's just WAYYY too far into the future...", ephemeral=True)
+            return await ctx.reply("that's too far into the future... please try less than 4 years!", ephemeral=True)
 
         is_dm_channel = True if isinstance(ctx.channel, discord.DMChannel) else False
 
         async with self.bot.get_cursor() as cursor:
-            await cursor.execute(
-                'INSERT INTO reminders (user_id, time_created, time_expire, content, is_dm, link) VALUES (%s, %s, %s, %s, %s, %s)',
-                (ctx.author.id, now, when, what, is_dm_channel, ctx.message.jump_url))
-            await cursor.execute('SELECT LAST_INSERT_ID()')
+            await cursor.execute('''
+                    INSERT INTO reminders (user_id, time_created, time_expire, content, is_dm, link)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                ''', (ctx.author.id, now, when, what, is_dm_channel, ctx.message.jump_url))
+            await cursor.execute("SELECT LAST_INSERT_ID()")
             id = (await cursor.fetchone())[0]
 
         remaining_time = when - now
         if remaining_time.total_seconds() < float(self.update_interval * 60):
             task = asyncio.create_task(self.handle_reminder_expiration(
                 tuple((id, ctx.author.id, now, when, what, is_dm_channel, ctx.message.jump_url,))),
-                                       name=f'reminder-{id}')
+                                       name=f"reminder-{id}")
             self.asyncio_timers[id] = task
 
-        await ctx.reply(f'Okay dokey, <t:{round(when.timestamp())}:R>: {what}', ephemeral=False)
+        await ctx.reply(f"Okay dokey, <t:{round(when.timestamp())}:R>: {what}", ephemeral=False)
 
-    @commands.hybrid_command(name='reminders', description='View your reminders')
+    @commands.hybrid_command(name="reminders", description="View your reminders")
     async def reminders(self, ctx: Context):
         
         async with self.bot.get_cursor() as cursor:
-            await cursor.execute(
-                'SELECT id,time_created,time_expire,content FROM reminders WHERE user_id = %s ORDER BY time_created',
-                (ctx.author.id,))
+            await cursor.execute('''
+                    SELECT id, time_created, time_expire, content
+                    FROM reminders
+                    WHERE user_id = %s
+                    ORDER BY time_created
+                ''', (ctx.author.id,))
             reminders = await cursor.fetchall()
 
         if not reminders:
-            return await ctx.reply('You have no reminders set... breh', ephemeral=True)
+            return await ctx.reply("You have no reminders set... breh", ephemeral=True)
 
         embed = discord.Embed(colour=discord.Colour.random())
-        embed.set_author(name=ctx.author.name + '\'s reminders', icon_url=ctx.author.display_avatar.url)
+        embed.set_author(name=ctx.author.name + "'s reminders", icon_url=ctx.author.display_avatar.url)
         for i, reminder in enumerate(reminders, start=1):
             #id = reminder[0]
             ts_created = round(reminder[1].astimezone(tz=self.bot.sql_server_tz).timestamp())
             ts_expire = round(reminder[2].astimezone(tz=self.bot.sql_server_tz).timestamp())
             content = trim_str(reminder[3], 900)
 
-            embed.add_field(name=f'Reminder #{i}',
-                            value=f'Created: <t:{ts_created}:F>\nExpires: <t:{ts_expire}:F> (<t:{ts_expire}:R>)\nContent: {content}',
+            embed.add_field(name=f"Reminder #{i}",
+                            value=f"Created: <t:{ts_created}:F>\nExpires: <t:{ts_expire}:F> (<t:{ts_expire}:R>)\nContent: {content}",
                             inline=False)
 
         view = RemindersListView(author_id=ctx.author.id, bot=self.bot, asyncio_timers=self.asyncio_timers,

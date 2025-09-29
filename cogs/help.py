@@ -32,7 +32,7 @@ class CategorySelectMenu(discord.ui.Select):
 
         options = []
         for cog_name, cog in self.bot.cogs.items():
-            if cog_name == 'Help': continue
+            if cog_name == "Help": continue
             command_list = []
             for command in cog.get_commands():
                 if command.hidden: continue
@@ -41,16 +41,16 @@ class CategorySelectMenu(discord.ui.Select):
             if len(command_list) == 0:
                 continue
 
-            description = getattr(cog, 'description', 'No description')
-            emoji = getattr(cog, 'emoji', None)
+            description = getattr(cog, "description", "No description")
+            emoji = getattr(cog, "emoji", None)
             options.append(discord.SelectOption(label=cog.qualified_name, value=cog.qualified_name, description=description, emoji=emoji))
 
-        options.insert(0, discord.SelectOption(label='Home', value='Home', emoji='\U0001f44b'))
-        super().__init__(placeholder='Select a category...', min_values=1, max_values=1, options=options)
+        options.insert(0, discord.SelectOption(label="Home", value="Home", emoji="\U0001f44b"))
+        super().__init__(placeholder="Select a category...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
         selected = self.values[0]
-        if selected == 'Home':
+        if selected == "Home":
             embed = get_home_embed(interaction.user)
         
         else:
@@ -59,21 +59,21 @@ class CategorySelectMenu(discord.ui.Select):
 
             for command in cog.walk_commands():
                 command.signature
-                signature = f'{command.qualified_name} {command.signature}'
+                signature = f"{command.qualified_name} {command.signature}"
                 embed.add_field(name=signature, value=command.description or '...', inline=False)
 
         await interaction.response.edit_message(embed=embed)
 
 
 class AdditionalNotesButton(discord.ui.View):
-    """ A `discord.ui.View` containing a button that will display parsed embed when pressed, for 'Additional Context' for the current command. """
+    """ A `discord.ui.View` containing a button that will display parsed embed when pressed, providing 'Additional Context' for the current command. """
 
     def __init__(self, embed: discord.Embed|None = None, timeout: int = 180):
         super().__init__(timeout=timeout)
         self.message = None
         self.embed = embed
 
-    @discord.ui.button(label='This command has additional context.', emoji='\U0001f6df', style=discord.ButtonStyle.green)
+    @discord.ui.button(label="This command has additional context.", emoji="\U0001f6df", style=discord.ButtonStyle.green)
     async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(embed=self.embed, ephemeral=True)
 
@@ -88,8 +88,8 @@ def get_home_embed(user: discord.Member|discord.User) -> discord.Embed:
     """ Create and get a personalised main menu help embed. """
 
     return discord.Embed(
-        title='Help',
-        description=f':wave: Hello, {user.mention}, and welcome to the home page of the help command. \n\n**Warning:** The help feature is currently still under development.\n\nSelect a category in the dropdown menu to get help with specific features.',
+        title="Help",
+        description=f":wave: Hello, {user.mention}, and welcome to the home page of the help command. \n\n**Warning:** The help feature is currently still under development.\n\nSelect a category in the dropdown menu to get help with specific features.",
         color=discord.Color.blurple()
     )
 
@@ -99,8 +99,8 @@ class HelpCommand(commands.HelpCommand):
     def __init__(self) -> None:
         super().__init__(
             command_attrs={
-                'cooldown': commands.CooldownMapping.from_cooldown(2, 6.0, commands.BucketType.member),
-                'help': 'Shows help about a command or a category',
+                "cooldown": commands.CooldownMapping.from_cooldown(2, 6.0, commands.BucketType.member),
+                "help": "Shows help about a command or a category",
             }
         )
 
@@ -114,26 +114,26 @@ class HelpCommand(commands.HelpCommand):
         app_cmd = self.context.bot.tree.get_command(command.name, type=discord.AppCommandType.chat_input)
 
         if app_cmd:
-            arg_descs = '\n'.join([f'**`{p.name}`**: {p.description}' for p in app_cmd.parameters])
+            arg_descs = '\n'.join([f"**`{p.name}`**: {p.description}" for p in app_cmd.parameters])
             if arg_descs:
-                embed.add_field(name='Parameter Descriptions', value=arg_descs)
+                embed.add_field(name="Parameter Descriptions", value=arg_descs)
 
         signature = [command.qualified_name, ]
         for name, param in command.clean_params.items():
             if param.required:
-                signature.append(f'<{param.name}>')
+                signature.append(f"<{param.name}>")
             else:
-                signature.append(f'({param.name})')
+                signature.append(f"({param.name})")
 
         embed.title = ' '.join(signature)
 
         view = None
         if command.help:
-            view = AdditionalNotesButton(discord.Embed(title='Additional Notes', description=command.help))
+            view = AdditionalNotesButton(discord.Embed(title="Additional Notes", description=command.help))
 
-        embed.set_footer(text='<arg> = required  |  (arg) = optional')
+        embed.set_footer(text="<arg> = required  |  (arg) = optional")
         m = await self.context.send(embed=embed, view=view)
-        if hasattr(view, 'message'): view.message = m
+        if hasattr(view, "message"): view.message = m
 
     async def send_group_help(self, group: commands.Group):
         embed = discord.Embed(title=group.qualified_name, description=group.description, color=discord.Color.blurple())
