@@ -271,7 +271,7 @@ class Birthday(commands.Cog, name='Birthday Announcer', description='Keep track 
             channel = await self.bot.get_or_fetch_channel(guild, birthday_channel_id)
             if not channel:  # channel doesn't exist anymore
                 async with self.bot.get_cursor() as cursor:
-                    await cursor.execute('DELETE FROM channels WHERE channel_id = %s', (birthday_channel_id,))
+                    await cursor.execute("UPDATE channels SET fails = fails + 1 WHERE channel_id = %s", (birthday_channel_id,))
                 continue
 
             if not guild.chunked:
@@ -297,6 +297,10 @@ class Birthday(commands.Cog, name='Birthday Announcer', description='Keep track 
                 footer = 'May you ' + ('' if num == 1 else 'both ' if num == 2 else 'all ') + 'have a blessed day 🎂🎉'
                 message = f'{'\n'.join(birthday_people)}\n\n{footer}'
                 await channel.send(message)
+        
+        # Remove channels that have failed thrice, and most likely no longer exist
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("DELETE FROM channels WHERE channel_id = fails > %s", (3,))
 
 
 async def setup(bot: Woolinator) -> None:
