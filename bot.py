@@ -43,7 +43,7 @@ class Woolinator(commands.Bot):
 
         async with self.get_cursor() as cursor:
 
-            with open('resources/database.sql', "r", encoding="utf-8") as f:
+            with open('database.sql', "r", encoding="utf-8") as f:
                 sql = f.read()
 
             # Remove comments
