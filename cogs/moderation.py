@@ -10,7 +10,7 @@ from discord.utils import escape_markdown, escape_mentions
 from .utils import checks
 from .utils.views import YesOrNo
 from .utils.emojis import tick, Emojis
-from .utils.common import convert_time_human_to_delta, trim_str, hybrid_msg_edit, plur
+from .utils.common import parse_entered_duration, format_timedelta, trim_str, hybrid_msg_edit, plur, format_timedelta
 from .utils.context import Context
 from bot import Woolinator
 
@@ -184,7 +184,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         if flags.suffix:
             predicates.append(lambda m: m.content.endswith(flags.suffix))
 
-        threshold = datetime.now(tz=timezone.utc) - timedelta(days=14)
+        threshold = discord.utils.utcnow() - timedelta(days=14)
         predicates.append(lambda m: m.created_at >= threshold)
 
         op = all if flags.require == "all" else any
@@ -237,13 +237,15 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         await ctx.guild.kick(member, reason=f"Mod: {ctx.author.name} | Reason: {reason}")
 
-        sent = await self.send_dm_victim(ctx=ctx, action="kicked", victim=member, colour=0xf0eb56, info=[
+        info = [
             f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})",
             f"**Reason:** {reason}"
-        ])
+        ]
 
-        dm = tick(True) if sent else tick(False)
-        embed = discord.Embed(description=f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})\n**DM:** {dm}\n**Reason:** {reason}", colour=0xf0eb56)
+        sent = await self.send_dm_victim(ctx=ctx, action="kicked", victim=member, colour=0xf0eb56, info=info)
+
+        info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
+        embed = discord.Embed(description='\n'.join(info), colour=0xf0eb56)
         embed.set_author(name=f"Kicked @{member.name}", icon_url=member.display_avatar.url)
         await ctx.send(embed=embed)
 
@@ -259,7 +261,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         if ctx.guild.me.top_role <= member.top_role:
             return await ctx.reply("I can't mute this member due to role hierarchy (their top role is higher than mine)", ephemeral=True)
 
-        duration, invalid_formats, too_long = convert_time_human_to_delta(duration)
+        duration, invalid_formats, too_long = parse_entered_duration(duration)
 
         if invalid_formats or too_long:
             invalid_message = ''
@@ -282,9 +284,11 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
             return await ctx.reply('\n\n'.join([invalid_message, too_long_message]), ephemeral=True)
 
-        now = datetime.now(tz=timezone.utc)
+        now = discord.utils.utcnow()
         end = now + duration
-        if (end - now).total_seconds() > 28 * 24 * 60 * 60:
+        duration: timedelta = end - now
+        
+        if duration.total_seconds() > 28 * 24 * 60 * 60:
             return await ctx.reply("Timeouts can't be longer than 28 days", ephemeral=True)
 
         view = None
@@ -303,14 +307,17 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         end_ts = round(end.timestamp())
 
-        sent = await self.send_dm_victim(ctx=ctx, action="timed out", victim=member, colour=0xff8b43, info=[
+        info = [
             f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})",
+            f"**Duration:** {format_timedelta(duration)}",
             f"**Ends:** <t:{end_ts}:f> (<t:{end_ts}:R>)",
             f"**Reason:** {reason}"
-        ])
+        ]
 
-        dm = tick(True) if sent else tick(False)
-        embed = discord.Embed(description=f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})\n**Ends:** <t:{end_ts}:f> (<t:{end_ts}:R>)\n**DM:** {dm}\n**Reason:** {reason}", colour=0xff8b43)
+        sent = await self.send_dm_victim(ctx=ctx, action="timed out", victim=member, colour=0xff8b43, info=info)
+        info.insert(3, f"**DM:** {tick(True) if sent else tick(False)}")
+
+        embed = discord.Embed(description='\n'.join(info), colour=0xff8b43)
         embed.set_author(name=f"Timed out @{member.name}", icon_url=member.display_avatar.url)
         if view is not None:
             await hybrid_msg_edit(view.message, content='', view=None, embed=embed)
@@ -331,23 +338,26 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         await ctx.typing()
 
-        await member.timeout(None, reason=f"Mod: {ctx.author.name} | Reason: {reason}")
 
-        sent = await self.send_dm_victim(ctx=ctx, action="unmuted", victim=member, colour=0x83f590, info=[
+        info = [
             f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})",
             f"**Reason:** {reason}",
-        ])
+        ]
 
-        dm = tick(True) if sent else tick(False)
-        embed = discord.Embed(description=f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})\n**DM:** {dm}\n**Reason:** {reason}", colour=0x83f590)
+        await member.timeout(None, reason=f"Mod: {ctx.author.name} | Reason: {reason}")
+
+        sent = await self.send_dm_victim(ctx=ctx, action="unmuted", victim=member, colour=0x83f590, info=info)
+
+        info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
+        embed = discord.Embed(description='\n'.join(info), colour=0x83f590)
         embed.set_author(name=f"Unmuted @{member.name}", icon_url=member.display_avatar.url)
         await ctx.send(embed=embed)
 
     @commands.hybrid_command(name="ban", description="Ban a member")
     @commands.bot_has_permissions(ban_members=True)
     @checks.hybrid_has_permissions(ban_members=True)
-    @app_commands.describe(member="The member you want to ban", delete="Whether to delete the user's messages (7 days)", reason="The reason for the ban")
-    async def ban(self, ctx: Context, member: discord.Member|discord.User, delete: bool = False, *, reason: commands.Range[str, 1, 400] = "No reason"):
+    @app_commands.describe(member="The member you want to ban", reason="The reason for the ban")
+    async def ban(self, ctx: Context, member: discord.Member|discord.User, *, reason: commands.Range[str, 1, 400] = "No reason"):
         
         if isinstance(member, discord.Member):
             if member.guild_permissions.manage_guild:
@@ -375,15 +385,17 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         await ctx.typing()
 
-        await ctx.guild.ban(member, reason=f"Mod: {ctx.author.name} | Reason: {reason}", delete_message_days=7 if delete else 0)
+        await ctx.guild.ban(member, reason=f"Mod: {ctx.author.name} | Reason: {reason}", delete_message_days=0)
 
-        sent = await self.send_dm_victim(ctx=ctx, action="banned", victim=member, colour=0xd60f78, info=[
+        info = [
             f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})",
             f"**Reason:** {reason}",
-        ])
+        ]
 
-        dm = tick(True) if sent else tick(False)
-        embed = discord.Embed(description=f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})\n**DM:** {dm}\n**Reason:** {reason}", colour=0xd60f78)
+        sent = await self.send_dm_victim(ctx=ctx, action="banned", victim=member, colour=0xd60f78, info=info)
+
+        info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
+        embed = discord.Embed(description='\n'.join(info), colour=0xd60f78)
         embed.set_author(name=f"Banned @{member.name}", icon_url=member.display_avatar.url)
 
         if view is not None:
@@ -403,13 +415,16 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         except discord.NotFound:
             return await ctx.reply("I could not find that unban... are you sure that user is banned?", ephemeral=True)
 
-        sent = await self.send_dm_victim(ctx=ctx, action="unbanned", victim=user, colour=0x83f590, info=[
+
+        info = [
             f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})",
             f"**Reason:** {reason}",
-        ])
+        ]
 
-        dm = tick(True) if sent else tick(False)
-        embed = discord.Embed(description=f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})\n**DM:** {dm}\n**Reason:** {reason}", colour=0x83f590)
+        sent = await self.send_dm_victim(ctx=ctx, action="unbanned", victim=user, colour=0x83f590, info=info)
+
+        info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
+        embed = discord.Embed(description='\n'.join(info), colour=0x83f590)
         embed.set_author(name=f"Unbanned @{user.name}", icon_url=user.display_avatar.url)
         await ctx.send(embed=embed)
 
@@ -431,8 +446,8 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
     @commands.bot_has_permissions(ban_members=True)
     @checks.hybrid_has_permissions(ban_members=True)
     @commands.cooldown(4, 12, commands.BucketType.user)
-    @app_commands.describe(members="The members you want to ban (separated by spaces)", delete="Whether to delete the users' messages (7 days)", reason="The reason for the bans")
-    async def banall(self, ctx: Context, members: commands.Greedy[discord.Member|discord.User], delete: bool = False, *, reason: commands.Range[str, 0, 400] = "No reason"):
+    @app_commands.describe(members="The members you want to ban (separated by spaces)", reason="The reason for the bans")
+    async def banall(self, ctx: Context, members: commands.Greedy[discord.Member|discord.User], *, reason: commands.Range[str, 0, 400] = "No reason"):
         res: list[discord.Member|discord.User|None] = []
 
         await ctx.typing()
@@ -447,7 +462,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
                     continue
 
             try:
-                await ctx.guild.ban(member, reason=f"Mod: {ctx.author.name} | Reason: {reason}", delete_message_days=7 if delete else 0)
+                await ctx.guild.ban(member, reason=f"Mod: {ctx.author.name} | Reason: {reason}", delete_message_days=0)
             except discord.HTTPException:
                 failed += 1
 

@@ -149,7 +149,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
             if (current.day == birth_date.day) and (current.month == birth_date.month) and (current.year == birth_date.year):
                 return await ctx.reply("But your birthday is already set to that...")
 
-        today = datetime.now(tz=timezone.utc)
+        today = discord.utils.utcnow()
         age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
 
         if age < 13:
@@ -158,7 +158,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
             return await ctx.reply("Now that's just too old...", ephemeral=True)
 
         last_announced = await self.get_year_last_announced(ctx.author, ctx.guild)
-        now = datetime.now(tz=timezone.utc)
+        now = discord.utils.utcnow()
         message = None
         if last_announced == now.year:
             is_in_same_year = (birth_date.month, birth_date.day) > (now.month, now.day) or (
@@ -244,7 +244,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
 
     @tasks.loop(time=time(12, 0, tzinfo=timezone.utc))
     async def birthday_notifier(self):
-        now = datetime.now()
+        now = discord.utils.utcnow()
         # `now.day` (& month) does not include 0 if single digit
         day = now.strftime('%d')
         month = now.strftime('%m')

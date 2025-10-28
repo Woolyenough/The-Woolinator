@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from typing import Any
 
@@ -40,7 +40,8 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
             log.warning(f"Tags length ({len(tag)}) does not match table columns length ({len(self.db_columns_order)})")
 
         return {
-            self.db_columns_order[i]: tag[i] for i in range(len(self.db_columns_order))
+            self.db_columns_order[i]: tag[i] if self.db_columns_order[i] != 'created' else tag[i].replace(tzinfo=timezone.utc)
+            for i in range(len(self.db_columns_order))
         }
 
     def index_tags(self, tags) -> list[dict[str, str]]:
@@ -229,7 +230,7 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
                 await ctx.reply(f"Tag with name '{self.prev_tag(tag['name'])}' already exists, and is owned by `@{tag_owner.name}`! Try another name.", ephemeral=True)
                 return
 
-        await self.insert_tag({"user_id": ctx.author.id, "guild_id": ctx.guild.id, "created": datetime.now(), "name": name, "content": content})
+        await self.insert_tag({"user_id": ctx.author.id, "guild_id": ctx.guild.id, "created": discord.utils.utcnow(), "name": name, "content": content})
 
         await ctx.reply(f"You are now the proud owner of the tag '{self.prev_tag(name)}'!")
 

@@ -69,6 +69,7 @@ async def run_bot():
                 db='Woolinator',
                 autocommit=True,
         )
+
     except Exception as e:
         log.exception('Failed to connect to the database', exc_info=e)
         return

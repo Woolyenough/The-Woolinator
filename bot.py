@@ -145,7 +145,7 @@ class Woolinator(commands.Bot):
 
     async def on_ready(self) -> None:
         if not hasattr(self, 'uptime'):
-            self.uptime = round(datetime.now(tz=timezone.utc).timestamp())
+            self.uptime = round(discord.utils.utcnow().timestamp())
 
         log.info('Ready as %s (%s)', self.user, self.user.id)
 

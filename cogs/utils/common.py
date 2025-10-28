@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 
 from dateutil.relativedelta import relativedelta
 import discord
@@ -31,8 +32,30 @@ def plur(val: int) -> str:
     else:
         return ''
     
+def format_timedelta(td: timedelta):
+    seconds = int(td.total_seconds())
+    days, seconds = divmod(seconds, 86400)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+    
+    parts = []
+    if days:
+        parts.append(f"{days} day{'s' if days != 1 else ''}")
+    if hours:
+        parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+    if minutes:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    if seconds:
+        parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
+    
+    if not parts:
+        return "0 seconds"
+    elif len(parts) == 1:
+        return parts[0]
+    else:
+        return ', '.join(parts[:-1]) + ' and ' + parts[-1]
 
-def convert_time_human_to_delta(when: str) -> tuple[relativedelta, list[str], list[str]]:
+def parse_entered_duration(when: str) -> tuple[relativedelta, list[str], list[str]]:
     """ Parses a human-readable duration string into a `relativedelta` object.
 
     The input string can contain multiple time expressions (e.g., '2h, 30m, 1day'), 

@@ -1,4 +1,4 @@
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 import logging
 
 import asyncio
@@ -10,7 +10,7 @@ from dateutil.relativedelta import relativedelta
 from bot import Woolinator
 from .utils.views import handle_view_edit
 from .utils.context import Context
-from .utils.common import convert_time_human_to_delta, trim_str
+from .utils.common import parse_entered_duration, trim_str
 
 
 log = logging.getLogger(__name__)
@@ -134,7 +134,7 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
                     SELECT id, user_id, time_created, time_expire, content, is_dm, link
                     FROM reminders
                     WHERE time_expire < %s
-                ''', (datetime.now() + timedelta(minutes=self.update_interval),))
+                ''', (discord.utils.utcnow().astimezone(self.bot.sql_server_tz) + timedelta(minutes=self.update_interval),))
             reminders = await cursor.fetchall()
 
         for reminder in reminders:
@@ -143,16 +143,16 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
             self.asyncio_timers[id] = task
 
     async def handle_reminder_expiration(self, reminder: tuple):
-        time_expire: datetime = reminder[3]
-        await asyncio.sleep((time_expire - datetime.now()).total_seconds())
+        time_expire: datetime = reminder[3].replace(tzinfo=timezone.utc)
+        await asyncio.sleep((time_expire - discord.utils.utcnow()).total_seconds())
 
         async with self.bot.get_cursor() as cursor:
             await cursor.execute("DELETE FROM reminders WHERE id = %s", (reminder[0],))
 
         id: int = reminder[0]
         user_id: str = reminder[1]
-        time_created: datetime = reminder[2]
-        time_expire: datetime = reminder[3]
+        time_created: datetime = reminder[2].replace(tzinfo=timezone.utc)
+        time_expire: datetime = reminder[3].replace(tzinfo=timezone.utc)
         content: str = reminder[4]
         is_dm: bool = reminder[5]
         link: str = reminder[6]
@@ -206,8 +206,8 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
                        what: commands.Range[str, 1, 1234] = "...nothing?"):
 
         what = await commands.clean_content(use_nicknames=False).convert(ctx, what)
-        now = datetime.now()
-        duration, invalid_formats, too_long = convert_time_human_to_delta(when)
+        now = discord.utils.utcnow()
+        duration, invalid_formats, too_long = parse_entered_duration(when)
 
         if invalid_formats or too_long:
 
@@ -276,8 +276,8 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
         embed.set_author(name=ctx.author.name + "'s reminders", icon_url=ctx.author.display_avatar.url)
         for i, reminder in enumerate(reminders, start=1):
             #id = reminder[0]
-            ts_created = round(reminder[1].astimezone(tz=self.bot.sql_server_tz).timestamp())
-            ts_expire = round(reminder[2].astimezone(tz=self.bot.sql_server_tz).timestamp())
+            ts_created = round(reminder[1].replace(tzinfo=timezone.utc).timestamp())
+            ts_expire = round(reminder[2].replace(tzinfo=timezone.utc).timestamp())
             content = trim_str(reminder[3], 900)
 
             embed.add_field(name=f"Reminder #{i}",

@@ -1,9 +1,9 @@
 -- phpMyAdmin SQL Dump
--- version 5.2.2
+-- version 5.2.3
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Oct 02, 2025 at 12:21 AM
+-- Generation Time: Oct 26, 2025 at 09:23 PM
 -- Server version: 10.11.13-MariaDB-0ubuntu0.24.04.1
 -- PHP Version: 8.3.6
 
@@ -14,6 +14,8 @@ SET time_zone = "+00:00";
 --
 -- Database: `Woolinator`
 --
+CREATE DATABASE IF NOT EXISTS `Woolinator` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+USE `Woolinator`;
 
 -- --------------------------------------------------------
 
