@@ -18,7 +18,7 @@ import asyncio
 from contextlib import redirect_stdout
 
 from bot import Woolinator
-from .utils.context import Context, Context
+from .utils.context import Context
 from .utils.emojis import tick
 
 
@@ -71,9 +71,22 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
         return content
 
     @commands.command(name="log", description="Upload woolinator.log")
-    async def log(self, ctx: Context):
+    async def log(self, ctx: Context, lines: int = 25):
         file = "woolinator.log"
-        await ctx.reply(f"`{file}`:", file=discord.File(fp=file, filename=file))
+        
+        with open(file, 'r', encoding='utf-8') as f:
+            all_lines = f.readlines()
+            tail_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+            content = ''.join(tail_lines)
+        
+        max_content_length = 1989
+        
+        if len(content) <= max_content_length:
+            await ctx.reply(embed=discord.Embed(description=f"```yaml\n{content}```", colour=discord.Colour.random()))
+        else:
+            # Send as file if too long
+            file_obj = discord.File(fp=io.BytesIO(content.encode('utf-8')), filename=file)
+            await ctx.reply(file=file_obj)
 
     @commands.command(name="eval", description="Evaluate some Python code")
     async def eval(self, ctx: Context, *, code: str):

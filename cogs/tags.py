@@ -249,7 +249,7 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
         created_ts = round(tag['created'].timestamp())
 
         view = YesOrNo(ctx.author)
-        embed = discord.Embed(description=f"> Created on <t:{created_ts}:d> at <t:{created_ts}:T>\n\n**Preview:**\n{trim_str(tag['content'], 80)}", colour=discord.Colour.red())
+        embed = discord.Embed(description=f"> Created on <t:{created_ts}:d> at <t:{created_ts}:T>", colour=discord.Colour.red())
         embed.set_author(name=tag['name'], icon_url=ctx.author.display_avatar.url)
         message = await ctx.reply("Are you sure you want to delete this tag?", embed=embed, view=view)
         view.message = message
@@ -326,7 +326,7 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
         tag_owner = await self.bot.get_or_fetch_user(tag['user_id'])
         tag_created_ts = round(tag['created'].timestamp())
 
-        embed = discord.Embed(title=f"Name: {tag['name']}", description=f"**Created:** at <t:{tag_created_ts}:T> on <t:{tag_created_ts}:d>\n\n**Preview:**\n{trim_str(tag['content'], 80)}", colour=discord.Colour.random())
+        embed = discord.Embed(title=f"Name: {tag['name']}", description=f"**Created:** at <t:{tag_created_ts}:T> on <t:{tag_created_ts}:d>", colour=discord.Colour.random())
         embed.set_author(name=f"Owned by @{tag_owner}", icon_url=tag_owner.display_avatar.url)
         await ctx.reply(embed=embed)
 

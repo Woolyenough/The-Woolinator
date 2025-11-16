@@ -1,7 +1,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from datetime import timezone, datetime
+from datetime import timezone
 
 import asyncmy
 import discord
@@ -144,8 +144,9 @@ class Woolinator(commands.Bot):
             log.info(f'{interaction.user.name} ({f'in {interaction.guild.name}' if interaction.guild else 'in DM\'s'}) executing: /{interaction.command.qualified_name}')
 
     async def on_ready(self) -> None:
+        
         if not hasattr(self, 'uptime'):
-            self.uptime = round(discord.utils.utcnow().timestamp())
+            self.uptime = discord.utils.utcnow()
 
         log.info('Ready as %s (%s)', self.user, self.user.id)
 

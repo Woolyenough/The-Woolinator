@@ -1,6 +1,6 @@
 from typing import Literal, Callable, Any
 import logging
-from datetime import timedelta, datetime, timezone
+from datetime import timedelta
 
 import discord
 from discord import app_commands
@@ -8,9 +8,9 @@ from discord.ext import commands
 from discord.utils import escape_markdown, escape_mentions
 
 from .utils import checks
-from .utils.views import YesOrNo
-from .utils.emojis import tick, Emojis
-from .utils.common import parse_entered_duration, format_timedelta, trim_str, hybrid_msg_edit, plur, format_timedelta
+from .utils.views import YesOrNo, ChannelSelector
+from .utils.emojis import Emojis, tick
+from .utils.common import parse_entered_duration, format_timedelta, trim_str, hybrid_msg_edit, plur
 from .utils.context import Context
 from bot import Woolinator
 
@@ -45,7 +45,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             pass
 
         return sent
-
+    
     async def get_mod_log_channel(self, guild: discord.Guild|int) -> int | None:
         """ Get snowflake channel ID of mod logs channel, `None` if it isn't set. """
         if isinstance(guild, discord.Guild): guild = guild.id
@@ -55,58 +55,38 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             res = await cursor.fetchone()
         return res[0] if res else None
 
-    @commands.hybrid_group(name="mod-log", description="Get the channel mod logs are sent to", fallback="get")
+    async def send_mod_log(self, guild: discord.Guild, embed: discord.Embed) -> bool:
+        """ Send a mod log embed to the configured mod log channel.
+        
+        Returns:
+            bool: True if the message was sent successfully, False otherwise.
+        """
+        channel_id = await self.get_mod_log_channel(guild)
+        if channel_id is None:
+            return False
+        
+        channel = await self.bot.get_or_fetch_channel(guild, channel_id)
+        if channel is None:
+            async with self.bot.get_cursor() as cursor:
+                await cursor.execute("UPDATE channels SET fails = fails + 1 WHERE feature = %s AND channel_id = %s", ("mod-logs", channel_id,))
+                await cursor.execute("DELETE FROM channels WHERE channel_id = fails > %s", (3,))
+            return False
+        
+        try:
+            await channel.send(f"\n-# {Emojis.warn} Could not use webhooks. Please ensure I have the `Manage Webhooks` permission." if not channel else '', embed=embed)
+            return True
+        except discord.HTTPException:
+            return False
+
+    @commands.hybrid_command(name="mod-log", description="Configure mod log channel")
+    @checks.hybrid_has_permissions(manage_guild=True)
     async def mod_log(self, ctx: Context):
-        channel_id = await self.get_mod_log_channel(ctx.guild)
+        current_channel_id = await self.get_mod_log_channel(ctx.guild)
         
-        if channel_id:
-            await ctx.reply(f"Moderator actions are currently being logged to <#{channel_id}>", ephemeral=True)
-        else:
-            await ctx.reply(f"{Emojis.warn} Mod actions aren't currently being logged to any channels!\n> Set it to a channel now with </mod-log set:1381472026660835398>", ephemeral=True)
-
-    @mod_log.command(name="remove", description="Remove the channel & disable mod log functionality")
-    async def mod_log_remove(self, ctx: Context):
-        channel_id = await self.get_mod_log_channel(ctx.guild)
+        status = f"Current: <#{current_channel_id}>" if current_channel_id else f"{tick(None)} Not configured"
+        view = ChannelSelector(self.bot, ctx.author, "Mod log", "mod-logs")
+        view.message = await ctx.reply(f"**Mod Log Channel**\n{status}", view=view, ephemeral=True)
         
-        if channel_id:
-            async with self.bot.get_cursor() as cursor:
-                await cursor.execute("DELETE FROM chanels WHERE guild_id = %s AND feature = %s", (ctx.guild.id, "mod-logs"))
-            await ctx.reply("Successfully removed. Mod actions won't be logged anymore.", ephemeral=True)
-        else:
-            await ctx.reply("There is currently no mod log channel set", ephemeral=True)
-
-    @mod_log.command(name="set", description="Set the channel mod logs will be sent to")
-    @app_commands.describe(channel="The channel where the logs will be sent to")
-    async def mod_log_set(self, ctx: Context, channel: discord.TextChannel):
-        channel_id = await self.get_mod_log_channel(ctx.guild)
-        
-        if channel_id and channel.id == channel_id:
-            return await ctx.reply("But thats the same channel it's already set to...", ephemeral=True)
-
-        async def update_db() -> None:
-            async with self.bot.get_cursor() as cursor:
-                await cursor.execute('''
-                        INSERT INTO channels (feature, guild_id, channel_id)
-                        VALUES (%s, %s, %s)
-                        ON DUPLICATE KEY UPDATE channel_id = %s
-                    ''', ("mod-logs", ctx.guild.id, channel.id, channel.id))
-
-        if channel_id:
-            view = YesOrNo(ctx.author)
-            message = await ctx.reply(f"This server already has a mod log channel set to: <#{channel_id}>!\n>>> Are you sure you want to change it to {channel.mention}?", view=view)
-            view.message = message
-            await view.wait()
-
-            if not view.value:
-                return
-
-            await update_db()
-            await message.edit(content=f"Done. Mod logs will now be sent to {channel.mention}", view=None)
-
-        else:
-            await update_db()
-            await ctx.reply(f"Mod logs channel has been set to {channel.mention}")
-
     class PurgeFlags(commands.FlagConverter, delimiter=' ', prefix='-', case_insensitive=True):
 
         user: discord.User|discord.Member|None = commands.flag(
@@ -221,6 +201,15 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         else:
             await ctx.react()
 
+        # Send to mod log channel
+        embed = discord.Embed(
+            description=f"**Channel:** {ctx.channel.mention}\n**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})\n**Messages deleted:** {len(deleted)}",
+            colour=0x9a61ff
+        )
+        embed.set_author(name="Messages Purged", icon_url=ctx.author.display_avatar.url)
+        await self.send_mod_log(ctx.guild, embed)
+    
+
     @commands.hybrid_command(name="kick", description="Kick a member")
     @commands.bot_has_permissions(kick_members=True)
     @checks.hybrid_has_permissions(kick_members=True)
@@ -248,6 +237,9 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         embed = discord.Embed(description='\n'.join(info), colour=0xf0eb56)
         embed.set_author(name=f"Kicked @{member.name}", icon_url=member.display_avatar.url)
         await ctx.send(embed=embed)
+        
+        # Send to mod log channel
+        await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="mute", aliases=["timeout", "tm"], description="Time out a member")
     @commands.bot_has_permissions(moderate_members=True)
@@ -323,6 +315,9 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             await hybrid_msg_edit(view.message, content='', view=None, embed=embed)
         else:
             await ctx.send(embed=embed)
+        
+        # Send to mod log channel
+        await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="unmute", description="Remove a member's timeout")
     @commands.bot_has_permissions(moderate_members=True)
@@ -352,6 +347,9 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         embed = discord.Embed(description='\n'.join(info), colour=0x83f590)
         embed.set_author(name=f"Unmuted @{member.name}", icon_url=member.display_avatar.url)
         await ctx.send(embed=embed)
+        
+        # Send to mod log channel
+        await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="ban", description="Ban a member")
     @commands.bot_has_permissions(ban_members=True)
@@ -402,6 +400,9 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             await hybrid_msg_edit(view.message, content='', view=None, embed=embed)
         else:
             await ctx.send(embed=embed)
+        
+        # Send to mod log channel
+        await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="unban", description="Unban a member")
     @commands.bot_has_permissions(ban_members=True)
@@ -427,6 +428,9 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         embed = discord.Embed(description='\n'.join(info), colour=0x83f590)
         embed.set_author(name=f"Unbanned @{user.name}", icon_url=user.display_avatar.url)
         await ctx.send(embed=embed)
+        
+        # Send to mod log channel
+        await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="checkban", description="Get info on a user's ban")
     @commands.bot_has_permissions(ban_members=True)
@@ -468,6 +472,15 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         cleaned_reason = await commands.clean_content(escape_markdown=True).convert(ctx, reason)
         await ctx.reply(f"Banned {len(res)} {f'({failed} failed)' if failed else ''} members\n>>> **Reason:** {cleaned_reason}", ephemeral=True)
+        
+        # Send to mod log channel
+        if len(res) > 0:
+            embed = discord.Embed(
+                description=f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})\n**Members banned:** {len(res)}{f' ({failed} failed)' if failed else ''}\n**Reason:** {cleaned_reason}",
+                colour=0xd60f78
+            )
+            embed.set_author(name="Bulk Ban", icon_url=ctx.author.display_avatar.url)
+            await self.send_mod_log(ctx.guild, embed)
 
 
 async def setup(bot: Woolinator) -> None:

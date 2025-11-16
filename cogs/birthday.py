@@ -9,8 +9,8 @@ from discord.ext import commands, tasks
 
 from bot import Woolinator
 from .utils import checks
-from .utils.views import YesOrNo
-from .utils.emojis import Emojis
+from .utils.views import YesOrNo, ChannelSelector
+from .utils.emojis import Emojis, tick
 from .utils.context import Context
 
 log = logging.getLogger(__name__)
@@ -184,63 +184,18 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
         if message is not None:
             return await message.edit(content=content_to_send, view=None)
         await ctx.reply(content_to_send)
-        
-    @commands.hybrid_group(name="birthday-channel", description="Get the channel birthdays are announced in", fallback="get")
+
+    @commands.hybrid_command(name="birthday-channel", description="Configure birthday channel")
+    @checks.hybrid_has_permissions(manage_guild=True)
     async def birthday_channel(self, ctx: Context):
         channel_id = await self.get_bday_channel(ctx.guild)
 
-        if channel_id is None:
-            return await ctx.reply("This server currently has no birthday channel.\n> You can set one with </birthday-channel set:1381472026660835399>", ephemeral=True)
+        status = f"Current: <#{channel_id}>" if channel_id else f"{tick(None)} Not configured"
 
         channel = await self.bot.get_or_fetch_channel(ctx.guild, channel_id)
-
         warning = f"\n-# {Emojis.warn} This channel doesn't seem to exist anymore." if not channel else ''
-        return await ctx.reply(f"The birthday channel is currently set to <#{channel_id}>{warning}", ephemeral=True)
-
-    @birthday_channel.command(name="set", description="Set the channel birthdays are announced in")
-    @checks.hybrid_has_permissions(manage_guild=True)
-    async def birthday_channel_set(self, ctx: Context, channel: discord.TextChannel):
-        channel_id = await self.get_bday_channel(ctx.guild)
-        
-        if channel_id and channel.id == channel_id:
-            return await ctx.reply("But thats the same channel it's already set to...", ephemeral=True)
-
-        async def update_db() -> None:
-            async with self.bot.get_cursor() as cursor:
-                await cursor.execute('''
-                        INSERT INTO channels (feature, guild_id, channel_id)
-                        VALUES (%s, %s, %s)
-                        ON DUPLICATE KEY UPDATE channel_id = %s;
-                    ''', ("birthdays", ctx.guild.id, channel.id, channel.id))
-
-        if channel_id:
-            view = YesOrNo(ctx.author)
-            message = await ctx.reply(f"This server already has a birthday channel set to: <#{channel_id}>!\n>>> Are you sure you want to change it to {channel.mention}?", view=view)
-            view.message = message
-            await view.wait()
-
-            if not view.value:
-                return
-
-            await update_db()
-            await message.edit(content=f"Done! Birthday channel is now {channel.mention}", view=None)
-
-        else:
-            await update_db()
-            await ctx.reply(f"Birthday channel has been set to {channel.mention}")
-
-    @birthday_channel.command(name="remove", description="Remove the channel birthdays are announced in, effectively disabling the feature")
-    @checks.hybrid_has_permissions(manage_guild=True)
-    async def birthday_channel_remove(self, ctx: Context):
-        channel_id = await self.get_bday_channel(ctx.guild)
-
-        if not channel_id:
-            return await ctx.reply("The birthday channel isn't even set :rolling_eyes:", ephemeral=True)
-
-        async with self.bot.get_cursor() as cursor:
-            await cursor.execute("DELETE FROM channels WHERE feature = %s AND guild_id = %s", ("birthdays", ctx.guild.id))
-        
-        await ctx.reply(f"The birthday channel (<#{channel_id}>) has been removed, effectively disabling the feature")
+        view = ChannelSelector(self.bot, ctx.author, "Birthday", "birthdays")
+        view.message = await ctx.reply(f"**Birthday Channel**\n{status}{warning}", view=view, ephemeral=True)
 
     @tasks.loop(time=time(12, 0, tzinfo=timezone.utc))
     async def birthday_notifier(self):
@@ -287,7 +242,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
             channel = await self.bot.get_or_fetch_channel(guild, birthday_channel_id)
             if not channel:  # channel doesn't exist anymore
                 async with self.bot.get_cursor() as cursor:
-                    await cursor.execute("UPDATE channels SET fails = fails + 1 WHERE channel_id = %s", (birthday_channel_id,))
+                    await cursor.execute("UPDATE channels SET fails = fails + 1 WHERE feature = %s AND channel_id = %s", ("birthdays", birthday_channel_id,))
                 continue
 
             if not guild.chunked:

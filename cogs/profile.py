@@ -1,7 +1,7 @@
 import io
 import logging
 
-from discord import app_commands
+from discord import app_commands, ui
 from discord.ext import commands
 import discord
 import aiohttp
@@ -31,7 +31,7 @@ async def get_image_buffer(url: str) -> Image.Image | None:
 
             return Image.open(io.BytesIO(await resp.read()))
 
-class GlobalGuildSwitchView(discord.ui.View):
+class GlobalGuildSwitchView(ui.View):
 
     def __init__(self,
         author_id: int,
@@ -51,8 +51,8 @@ class GlobalGuildSwitchView(discord.ui.View):
         self.global_file = global_file
         self.guild_file = guild_file
 
-        self.children[0]: discord.ui.Button
-        self.children[1]: discord.ui.Button
+        self.children[0]: ui.Button
+        self.children[1]: ui.Button
 
         if global_embed is None:
             self.set_button_state(1, False, True)
@@ -80,8 +80,8 @@ class GlobalGuildSwitchView(discord.ui.View):
         button.style = discord.ButtonStyle.green if selected else discord.ButtonStyle.grey if selected is None else discord.ButtonStyle.red
         button.emoji = tick(selected)
 
-    @discord.ui.button(label="Global", style=discord.ButtonStyle.grey)
-    async def display_global(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label="Global", style=discord.ButtonStyle.grey)
+    async def display_global(self, interaction: discord.Interaction, button: ui.Button):
 
         if self.global_embed is None:
             await interaction.response.send_message("There is no global version", ephemeral=True)
@@ -93,8 +93,8 @@ class GlobalGuildSwitchView(discord.ui.View):
         attachments = make_attachment(self.global_file)
         await interaction.response.edit_message(embed=self.global_embed, attachments=attachments, view=self)
 
-    @discord.ui.button(label="Guild", style=discord.ButtonStyle.grey)
-    async def display_guild(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label="Guild", style=discord.ButtonStyle.grey)
+    async def display_guild(self, interaction: discord.Interaction, button: ui.Button):
 
         if self.guild_embed is None:
             await interaction.response.send_message("There is no guild version", ephemeral=True)

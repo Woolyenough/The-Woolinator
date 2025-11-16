@@ -4,7 +4,7 @@ import logging
 import asyncio
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands
+from discord import app_commands, ui
 from dateutil.relativedelta import relativedelta
 
 from bot import Woolinator
@@ -16,7 +16,7 @@ from .utils.common import parse_entered_duration, trim_str
 log = logging.getLogger(__name__)
 
 
-class RemindersRemoveView(discord.ui.View):
+class RemindersRemoveView(ui.View):
 
     def __init__(self, reminders: list):
         super().__init__(timeout=60)
@@ -25,7 +25,7 @@ class RemindersRemoveView(discord.ui.View):
         self.add_item(RemindersRemoveDropdown(reminders=reminders))
 
 
-class RemindersRemoveDropdown(discord.ui.Select):
+class RemindersRemoveDropdown(ui.Select):
 
     def __init__(self, reminders: list):
         options = []
@@ -46,7 +46,7 @@ class RemindersRemoveDropdown(discord.ui.Select):
         self.view.stop()
 
 
-class RemindersListView(discord.ui.View):
+class RemindersListView(ui.View):
 
     def __init__(self, author_id: int, reminders, bot: Woolinator, asyncio_timers: dict, timeout: int = 20):
         super().__init__(timeout=timeout)
@@ -57,8 +57,8 @@ class RemindersListView(discord.ui.View):
         self.message = None
         self.asyncio_timers = asyncio_timers
 
-    @discord.ui.button(label="Delete reminder(s)", emoji="\U0001f5d1", style=discord.ButtonStyle.red)
-    async def delete_reminder(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label="Delete reminder(s)", emoji="\U0001f5d1", style=discord.ButtonStyle.red)
+    async def delete_reminder(self, interaction: discord.Interaction, button: ui.Button):
         view = RemindersRemoveView(reminders=self.reminders)
         await interaction.response.send_message("Please select the reminder(s) you want to delete:", view=view, ephemeral=True)
         await view.wait()
@@ -165,8 +165,8 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
             return
 
         message = f"{user.mention}, your reminder that you set on <t:{round(time_created.timestamp())}:f> has expired <t:{round(time_expire.timestamp())}:R>!\n\nHere's what you wanted to be reminded of:\n>>> {content}"
-        view = discord.ui.View()
-        view.add_item(discord.ui.Button(style=discord.ButtonStyle.link, label="Jump to when the reminder was made", url=link))
+        view = ui.View()
+        view.add_item(ui.Button(style=discord.ButtonStyle.link, label="Jump to when the reminder was made", url=link))
 
         failed_to_send = False
         if not is_dm:

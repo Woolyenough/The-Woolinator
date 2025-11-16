@@ -1,18 +1,19 @@
 import logging
 import base64
-import binascii
 import os
 import subprocess
 import unicodedata
 import psutil
-import itertools
+import platform
+from datetime import datetime
 
 import discord
-from discord import app_commands
+from discord import app_commands, ui
 from discord.ext import commands, tasks
 
 from .utils import checks
-from .utils.common import trim_str
+from .utils.emojis import tick
+from .utils.common import trim_str, format_timedelta
 from .utils.context import Context
 from bot import Woolinator
 
@@ -56,14 +57,9 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         await self.bot.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.watching,
-                name=f"{len(self.bot.users)} users in {len(self.bot.guilds)} guilds 🤙😎"
+                name=f"{len(self.bot.users):,} users in {len(self.bot.guilds):,} guilds 🤙😎"
             )
         )
-
-    @commands.hybrid_command(name="end-of-10", description="Windows 10 support countdown")
-    async def end_of_10(self, ctx: Context):
-        ts = "1761375540"
-        await ctx.reply(f"Microsoft will end support for Windows 10 on <t:{ts}:F> (<t:{ts}:R>)!")
 
     @commands.hybrid_command(name="about", description="About myself!")
     async def about(self, ctx: Context):
@@ -76,16 +72,11 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
                 if file.endswith('.py'):
                     file_path = os.path.join(dirpath, file)
 
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                            total_lines += content.count('\n') + 1  # +1 for last line without \n
-                            total_chars += len(content)
-                            total_files += 1
-
-                    except Exception as e:
-                        log.warning(f"Couldn't read file '{file_path}'", exc_info=e)
-                        continue
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        total_lines += content.count('\n') + 1  # +1 for last line without \n
+                        total_chars += len(content)
+                        total_files += 1
         
         memory_usage = self.process.memory_full_info().uss / 1024**2
         total_memory = psutil.virtual_memory().total / 1024**2
@@ -93,10 +84,11 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         cpu_usage = self.process.cpu_percent() / psutil.cpu_count()
 
         description = [
-            f"Private bot made by [**`@woolyenough`**](https://discord.com/users/{self.bot.owner.id})",
+            f"Hi! I am a private, [OSS](https://github.com/Woolyenough/The-Woolinator) bot made by [**`@woolyenough`**](https://discord.com/users/{self.bot.owner.id})",
             "",
-            f"**Created:** <t:{round(self.bot.user.created_at.timestamp())}:R>",
+            f"**Uptime:** <t:{round(self.bot.uptime.timestamp())}:R>", 
             f"**Code:** {total_lines:,} lines / {total_chars:,} chars / {total_files} .py files",
+            f"**Created:** <t:{round(self.bot.user.created_at.timestamp())}:R>",
             "",
         ]
 
@@ -105,7 +97,7 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         embed.add_field(name="**Exposure:**", value=f"> {len(self.bot.guilds)} Guilds (Servers)\n> {len(self.bot.users):,} Users")
         embed.add_field(name="**Process:**", value=f"> {cpu_usage:.2f}% CPU\n> {memory_usage:.2f} MiB ({mem_pc:.2f}%) Mem")
         embed.set_thumbnail(url=self.bot.user.display_avatar.url)
-        embed.set_footer(text="Made with discord.py", icon_url="http://i.imgur.com/5BFecvA.png")
+        embed.set_footer(text=f"Python {platform.python_version()}  ▪  discord.py v{discord.__version__}", icon_url="https://wooly.wtf/files/The-Woolinator/python.png")
         await ctx.reply(embed=embed)
 
     @commands.Cog.listener()
@@ -155,8 +147,8 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         embed.add_field(name="After:", value=trim_str(after.content, 1024), inline=False)
         embed.set_author(name=f"@{after.author.name}", icon_url=after.author.display_avatar.url)
 
-        view = discord.ui.View()\
-            .add_item(discord.ui.Button(style=discord.ButtonStyle.link, label="Jump to Message", url=after.jump_url))
+        view = ui.View()\
+            .add_item(ui.Button(style=discord.ButtonStyle.link, label="Jump to Message", url=after.jump_url))
         await ctx.reply(embed=embed, view=view)
 
     @commands.hybrid_command(name="hello", description="Says hello")
@@ -219,28 +211,125 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         await ctx.reply(embed=embed)
         # Add buttons 'avatar' & 'banner' which are red/green (depending on if the user has them) which will self.invoke_command() the command
 
-    @commands.hybrid_command(name="base64", aliases=["b64"], description="Encode & decode text in base64")
-    @app_commands.describe(method="Whether to decode or encode (default: encode)", text="The text to encode/decode")
-    async def base64(self, ctx: Context, method: str = "encode", *, text: commands.Range[str, 1, 3000]):
-        try:
-            if "decode".startswith(method):
-                b = base64.b64decode(bytes(text, "utf-8"))
-                base64_str = b.decode("utf-8")
-                await ctx.reply(embed=discord.Embed(title="Base64 Decoded", description=base64_str, color=discord.Color.random()))
+
+    @commands.hybrid_command(name="transcode", description="Convert between different number systems and encodings")
+    @app_commands.describe(
+        from_format="The format of the input",
+        to_format="The format you want to convert to",
+        value="The value to convert"
+    )
+    async def transcode(self, ctx: Context, from_format: str, to_format: str, *, value: commands.Range[str, 1, 2000]):
+        """*Supported formats:*
+        - **binary**: Binary numbers (e.g., 1010, 0b1010)
+        - **decimal**: Decimal numbers (e.g., 42)
+        - **hex**: Hexadecimal numbers (e.g., 2A, 0x2A)
+        - **base64**: Base64 encoded text
+        - **string**: Plain text/ASCII string
+        """
+        
+        from_format = from_format.lower()
+        to_format = to_format.lower()
+        
+        valid_formats = ["binary", "decimal", "hex", "base64", "string"]
+
+        if from_format not in valid_formats:
+            matches = [fmt for fmt in valid_formats if fmt.startswith(from_format)]
+            if matches:
+                from_format = matches[0]
             else:
-                #if ctx.interaction is None and not 'encode'.startswith(method): text = f'{method} {text}'  # hmm, idk about this...
-                b = base64.b64encode(bytes(text, "utf-8"))
-                base64_str = b.decode("utf-8")
-                await ctx.reply(embed=discord.Embed(title="Base64 Encoded", description=base64_str, color=discord.Color.random()))
+                await ctx.reply(f"Invalid format! Valid formats are: {', '.join(valid_formats)}", ephemeral=True)
+                return
+        
+        if to_format not in valid_formats:
+            matches = [fmt for fmt in valid_formats if fmt.startswith(to_format)]
+            if matches:
+                to_format = matches[0]
+            else:
+                await ctx.reply(f"Invalid format! Valid formats are: {', '.join(valid_formats)}", ephemeral=True)
+                return
 
-        except binascii.Error:
-            await ctx.reply("There was an error encoding/decoding the text.", ephemeral=True)
+        try:
+            intermediate_bytes = None
+            
+            if from_format == "binary":
+                # Remove optional 0b prefix and spaces
+                binary_str = value.replace("0b", "").replace(" ", "")
+                if not all(c in "01" for c in binary_str):
+                    raise ValueError("Binary string must only contain 0s and 1s")
+                # Pad to make it byte-aligned
+                if len(binary_str) % 8 != 0:
+                    binary_str = binary_str.zfill((len(binary_str) // 8 + 1) * 8)
+                intermediate_bytes = int(binary_str, 2).to_bytes(len(binary_str) // 8, byteorder='big')
+                
+            elif from_format == "decimal":
+                num = int(value)
+                if num < 0:
+                    raise ValueError("Negative numbers are not supported")
+                # Calculate bytes needed
+                byte_length = (num.bit_length() + 7) // 8 or 1
+                intermediate_bytes = num.to_bytes(byte_length, byteorder='big')
+                
+            elif from_format == "hex":
+                # Remove optional 0x prefix and spaces
+                hex_str = value.replace("0x", "").replace(" ", "")
+                if not all(c in "0123456789abcdefABCDEF" for c in hex_str):
+                    raise ValueError("Hex string must only contain hexadecimal characters")
+                # Pad to even length
+                if len(hex_str) % 2 != 0:
+                    hex_str = "0" + hex_str
+                intermediate_bytes = bytes.fromhex(hex_str)
+                
+            elif from_format == "base64":
+                intermediate_bytes = base64.b64decode(value)
+                
+            elif from_format == "string":
+                intermediate_bytes = value.encode('utf-8')
+            
+            result = None
+            
+            if to_format == "binary":
+                result = ' '.join(format(byte, '08b') for byte in intermediate_bytes)
+                
+            elif to_format == "decimal":
+                result = str(int.from_bytes(intermediate_bytes, byteorder='big'))
+                
+            elif to_format == "hex":
+                result = intermediate_bytes.hex().upper()
+                # Add 0x prefix and space every 2 chars for readability
+                result = "0x" + ' '.join(result[i:i+2] for i in range(0, len(result), 2))
+                
+            elif to_format == "base64":
+                result = base64.b64encode(intermediate_bytes).decode('utf-8')
+                
+            elif to_format == "string":
+                result = intermediate_bytes.decode('utf-8', errors='replace')
+            
+            # Maximise embed description space (4096 characters)
+            to_display = f"**Original ({from_format})**\n```\n{trim_str(value, 500)}```\n**Result ({to_format})**\n```\n"
+            space_left = 4096 - len(to_display)
+            to_display += trim_str(result, space_left - 3) + "```"
+            
+            embed = discord.Embed(
+                description=to_display,
+                colour=discord.Colour.green()
+            )
+            embed.set_footer(text=f"@{ctx.author.name}  |  Bytes processed: {len(intermediate_bytes)}", icon_url=ctx.author.display_avatar.url)
+            await ctx.reply(embed=embed)
+            
+        except ValueError as e:
+            await ctx.reply(f"{tick(False)} Conversion error: {str(e)}", ephemeral=True)
+        except Exception as e:
+            log.exception("Error in binary conversion command")
+            await ctx.reply(f"{tick(False)} An error occurred during conversion: {str(e)}", ephemeral=True)
 
-    @base64.autocomplete(name="method")
-    async def base64_autocomplete(self, interaction: discord.Interaction, current: str):
-        opts = ["encode", "decode"]
+    @transcode.autocomplete(name="from_format")
+    @transcode.autocomplete(name="to_format")
+    async def binary_format_autocomplete(self, interaction: discord.Interaction, current: str):
+        formats = ["binary", "decimal", "hex", "base64", "string"]
         return [
-            app_commands.Choice(name=opt, value=opt) for opt in opts if opt.startswith(current.lower())
+            app_commands.Choice(name=fmt.capitalize(), value=fmt) 
+            for fmt in formats 
+            if fmt.startswith(current.lower())
         ]
 
     @commands.hybrid_command(name="prefix", description="View or set bot prefixes")

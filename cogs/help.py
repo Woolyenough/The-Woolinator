@@ -3,6 +3,7 @@ from typing import Mapping
 
 import discord
 from discord.ext import commands
+from discord import ui
 
 from bot import Woolinator
 from .utils.views import handle_view_edit
@@ -11,7 +12,7 @@ from .utils.context import Context
 log = logging.getLogger(__name__)
 
 
-class CategorySelectMenuView(discord.ui.View):
+class CategorySelectMenuView(ui.View):
     """ A custom View with a `ui.Select` item populated with the command categories. """
 
     def __init__(self, bot: Woolinator, *, timeout = 180):
@@ -25,7 +26,7 @@ class CategorySelectMenuView(discord.ui.View):
 
         await handle_view_edit(self.message, view=self)
 
-class CategorySelectMenu(discord.ui.Select):
+class CategorySelectMenu(ui.Select):
 
     def __init__(self, bot: Woolinator):
         self.bot: Woolinator = bot
@@ -65,16 +66,16 @@ class CategorySelectMenu(discord.ui.Select):
         await interaction.response.edit_message(embed=embed)
 
 
-class AdditionalNotesButton(discord.ui.View):
-    """ A `discord.ui.View` containing a button that will display parsed embed when pressed, providing 'Additional Context' for the current command. """
+class AdditionalNotesButton(ui.View):
+    """ A `ui.View` containing a button that will display parsed embed when pressed, providing 'Additional Context' for the current command. """
 
     def __init__(self, embed: discord.Embed|None = None, timeout: int = 180):
         super().__init__(timeout=timeout)
         self.message = None
         self.embed = embed
 
-    @discord.ui.button(label="This command has additional context.", emoji="\U0001f6df", style=discord.ButtonStyle.green)
-    async def button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @ui.button(label="This command has additional context.", emoji="\U0001f6df", style=discord.ButtonStyle.green)
+    async def button_callback(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.send_message(embed=self.embed, ephemeral=True)
 
     async def on_timeout(self):

@@ -20,7 +20,6 @@ async def hybrid_msg_edit(message: discord.Message|discord.InteractionMessage|di
 
 def trim_str(string: str, max_length: int) -> str:
     """ Trims a string to the specified length, ending with '...' if trimmed. """
-
     if len(string) > max_length:
         return string[:max_length-3] + '...'
     return string
@@ -44,9 +43,9 @@ def format_timedelta(td: timedelta):
     if hours:
         parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
     if minutes:
-        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+        parts.append(f"{minutes} min{'s' if minutes != 1 else ''}")
     if seconds:
-        parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
+        parts.append(f"{seconds} sec{'s' if seconds != 1 else ''}")
     
     if not parts:
         return "0 seconds"
