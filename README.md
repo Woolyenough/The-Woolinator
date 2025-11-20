@@ -27,8 +27,8 @@ python launcher.py
 
 ## Public Instances
 The bot is only in servers that I like. Here are a few of them:
-1. [discord.gg/sharpness](https://discord.gg/sharpness)
-1. [discord.gg/blotcraft](https://discord.gg/blotcraft)
+1. [Sharpness](https://discord.gg/sharpness)&nbsp;&nbsp;![Join](https://badgen.net/discord/members/sharpness?color=blue&label=&cache=600&scale=.95)
+2. [BlotCraft](https://discord.gg/blotcraft)&nbsp;&nbsp;![Join](https://badgen.net/discord/members/WykQ2cpVqx?color=blue&label=&cache=600&scale=.95)
 
 If you would like to have it added to your server, you may contact me: `@woolyenough`
 
@@ -37,4 +37,4 @@ If you would like to have it added to your server, you may contact me: `@woolyen
 - [R. Danny](https://github.com/Rapptz/RoboDanny) - many of The Woolinator's features & design choices were inspired by the R. Danny bot
 
 ## Licence
-This project is licensed under the CC0 (Creative Commons Zero) licence. You are free to use, modify, and share it without restriction. Attribution is not required - but if this project helped you out, a shoutout is always appreciated!
+This project is licensed under the CC0 (Creative Commons Zero) licence. You are free to use, modify, and share it without restriction. Attribution is not required - but if this project helped you out, a star is always appreciated!
