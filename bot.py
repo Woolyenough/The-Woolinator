@@ -44,14 +44,11 @@ class Woolinator(commands.Bot):
         async with self.get_cursor() as cursor:
 
             with open('database.sql', "r", encoding="utf-8") as f:
-                sql = f.read()
-
-            # Remove comments
-            lines = []
-            for line in sql.splitlines():
-                if not line.strip().startswith('--'):
-                    lines.append(line)
-            cleaned_sql = '\n'.join(lines)
+                # Remove comments and join lines in a single pass
+                cleaned_sql = '\n'.join(
+                    line for line in f
+                    if not line.strip().startswith('--')
+                )
 
             # Split into statements
             statements = [s.strip() for s in cleaned_sql.split(';') if s.strip()]
@@ -77,11 +74,14 @@ class Woolinator(commands.Bot):
             else:
                 self.user_prefixes[entity_id] = prefix
 
-        for extension in [f'cogs.{file}' for file in os.listdir('cogs')]:
-            if extension.endswith('.py'):
-                extension = extension[:-3]
-            else: continue
-
+        # Load all Python modules from cogs directory
+        from pathlib import Path
+        cogs_path = Path('cogs')
+        for filepath in cogs_path.glob('*.py'):
+            if filepath.stem.startswith('_'):
+                continue  # Skip private modules like __init__
+            
+            extension = f'cogs.{filepath.stem}'
             try:
                 await self.load_extension(extension)
                 log.info('Loaded extension: %s', extension)

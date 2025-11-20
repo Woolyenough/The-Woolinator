@@ -38,6 +38,10 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
 
         self.deleted_messages: dict[int, discord.Message] = {}
         self.edited_messages: dict[int, tuple[discord.Message, discord.Message]] = {}
+        
+        # Cache for code statistics - computed once at startup
+        self._cached_stats = None
+        self._compute_code_stats()
 
     async def cog_load(self):
         if not self.rotate_status.is_running(): self.rotate_status.start()
@@ -48,6 +52,29 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
     @property
     def emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name="misc", id=1337679601522049054)
+    
+    def _compute_code_stats(self) -> None:
+        """Compute code statistics once at startup and cache them."""
+        total_lines, total_chars, total_files = [0] * 3
+
+        for dirpath, dirnames, filenames in os.walk('.'):
+            dirnames[:] = [d for d in dirnames if d not in {".venv", "__pycache__"}]
+
+            for file in filenames:
+                if file.endswith('.py'):
+                    file_path = os.path.join(dirpath, file)
+
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        total_lines += content.count('\n') + 1  # +1 for last line without \n
+                        total_chars += len(content)
+                        total_files += 1
+        
+        self._cached_stats = {
+            'lines': total_lines,
+            'chars': total_chars,
+            'files': total_files
+        }
 
     @tasks.loop(minutes=5)
     async def rotate_status(self):
@@ -63,20 +90,10 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
 
     @commands.hybrid_command(name="about", description="About myself!")
     async def about(self, ctx: Context):
-        total_lines, total_chars, total_files = [0] * 3
-
-        for dirpath, dirnames, filenames in os.walk('.'):
-            dirnames[:] = [d for d in dirnames if d not in {".venv", "__pycache__"}]
-
-            for file in filenames:
-                if file.endswith('.py'):
-                    file_path = os.path.join(dirpath, file)
-
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                        total_lines += content.count('\n') + 1  # +1 for last line without \n
-                        total_chars += len(content)
-                        total_files += 1
+        # Use cached statistics
+        total_lines = self._cached_stats['lines']
+        total_chars = self._cached_stats['chars']
+        total_files = self._cached_stats['files']
         
         memory_usage = self.process.memory_full_info().uss / 1024**2
         total_memory = psutil.virtual_memory().total / 1024**2
@@ -401,13 +418,18 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
     @app_commands.autocomplete(os=os_autocomplete)
     async def distro(self, ctx: Context, os: commands.Range[str, 1, 50]):
 
+        # Validate input before running subprocess
         found = False
+        normalized_os = os.lower().replace('"', '')
         for os_name in self.available_os_ascii:
-            if os_name.lower().replace('"', '') == os.lower():
+            if os_name.lower().replace('"', '') == normalized_os:
                 os = os_name
                 found = True
+                break
 
-        os = os if found else "Invalid distro"
+        if not found:
+            await ctx.reply(f"Invalid distro '{os}'. Use autocomplete to see available options.", ephemeral=True)
+            return
 
         def remove_cursor_moving_ansi(text):
             # Discord ANSI code blocks don't look forward slash, for some reason
@@ -416,7 +438,16 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
             # I'm assuming these are escape sequences to move the cursor, I had no idea how else to get rid of these...
             return text.replace("[16A[9999999D", '').replace("[27A[9999999D", '').replace("[23A[9999999D", '').replace("[15A[9999999D", '').replace("[21A[9999999D", '').replace("[17A[9999999D", '').replace("[13A[9999999D", '').replace("[12A[9999999D", '').replace("[?25l[?7l", '').replace("[18A[9999999D", '').replace("[20A[9999999D", '').replace("[?25h[?7h", '').replace("[19A[9999999D", '').replace("[28A[9999999D", '')
 
-        stdout = subprocess.run(["neofetch", "--ascii_distro", os, "-L"], capture_output=True, text=True).stdout
+        try:
+            stdout = subprocess.run(["neofetch", "--ascii_distro", os, "-L"], capture_output=True, text=True, timeout=5).stdout
+        except subprocess.TimeoutExpired:
+            await ctx.reply("The command took too long to execute. Please try again.", ephemeral=True)
+            return
+        except Exception as e:
+            log.exception("Error running neofetch command")
+            await ctx.reply("An error occurred while generating the logo.", ephemeral=True)
+            return
+            
         stdout = remove_cursor_moving_ansi(stdout)
         stdout = stdout.replace('`', '´').strip()  # Replace backticks to prevent code block escaping
 

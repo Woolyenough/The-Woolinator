@@ -181,7 +181,11 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         amount = amount if ctx.interaction else (amount + 1)
         try:
-            deleted = [msg async for msg in ctx.channel.history(limit=amount, before=before, after=after) if predicate(msg)]
+            # Process messages in a more memory-efficient way
+            deleted = []
+            async for msg in ctx.channel.history(limit=amount, before=before, after=after):
+                if predicate(msg):
+                    deleted.append(msg)
         except discord.Forbidden:
             return await ctx.reply("I do not have permissions to search for messages.")
         except discord.HTTPException as e:
