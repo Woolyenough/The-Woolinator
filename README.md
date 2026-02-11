@@ -28,7 +28,7 @@ python launcher.py
 ## Public Instances
 The bot is only in servers that I like. Here are a few of them:
 1. [Sharpness](https://discord.gg/sharpness)&nbsp;&nbsp;![Join](https://badgen.net/discord/members/sharpness?color=blue&label=&cache=600&scale=.95)
-2. [BlotCraft](https://discord.gg/blotcraft)&nbsp;&nbsp;![Join](https://badgen.net/discord/members/WykQ2cpVqx?color=blue&label=&cache=600&scale=.95)
+2. [BlotCraft](https://discord.gg/blotcraft)&nbsp;&nbsp;![Join](https://badgen.net/discord/members/blotcraft?color=blue&label=&cache=600&scale=.95)
 
 If you would like to have it added to your server, you may contact me: `@woolyenough`
 
