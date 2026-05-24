@@ -3,7 +3,7 @@ A multipurpose, personal Discord bot written in Python 3.12 using the discord.py
 
 ## Running an Instance
 > [!WARNING]
-> This project has only been tested on Linux. You may encounter issues related to file paths or other platform-specific behaviour when running on Windows.
+> This project has been developed on and for Linux. You may encounter issues related to platform-specific behaviour when running on Windows.
 
 > [!NOTE]
 > The version here may not reflect what the bot is currently running. I tend to test changes before pushing to GitHub.

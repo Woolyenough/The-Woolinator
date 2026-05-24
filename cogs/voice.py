@@ -35,8 +35,13 @@ class Voice(commands.Cog, name="Voice", description="Voice call-related features
     def emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name="voice", id=1337677215848206387)
 
+    # --- Listeners ---
+
     @commands.Cog.listener()
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        if member.bot:
+            return
+
         channel: discord.abc.Messageable|None = self.used_channel.get(member.guild.id)
 
         async def send_msg(ch: discord.abc.Messageable|None, content: str) -> None:
@@ -62,6 +67,8 @@ class Voice(commands.Cog, name="Voice", description="Voice call-related features
                     await vc.disconnect(force=True)
                     vc.cleanup()
                     await send_msg(channel, "I left the vc out of sadness because I was the only member left in it")
+
+    # --- Helpers ---
 
     async def join_vc(self, ctx: Context) -> discord.VoiceProtocol | None:
         """ Join the VC from the context, returning `None` if unable to. """
@@ -92,6 +99,8 @@ class Voice(commands.Cog, name="Voice", description="Voice call-related features
 
         self.used_channel[ctx.guild.id] = ctx.channel
         return vc
+
+    # --- Commands ---
 
     @commands.hybrid_command(name="tts", description="Have a say in the voice chat without speaking")
     @app_commands.describe(message="The message you want to convert to speech")

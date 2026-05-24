@@ -8,8 +8,8 @@ from discord.ext import commands
 from discord.utils import escape_markdown, escape_mentions
 
 from .utils import checks
-from .utils.views import YesOrNo, ChannelSelector
-from .utils.emojis import Emojis, tick
+from .utils.views import YesOrNo
+from .utils.emojis import tick
 from .utils.common import parse_entered_duration, format_timedelta, trim_str, hybrid_msg_edit, plur
 from .utils.context import Context
 from bot import Woolinator
@@ -31,6 +31,8 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
     def emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name="moderation",id=1337677182197039105)
 
+    # --- Helpers ---
+
     async def send_dm_victim(self, ctx: Context, action: str, victim: discord.Member | discord.User, info: list[str], colour: int | discord.Colour = 0xff7835) -> bool:
         #punisher = ctx.author
         embed = discord.Embed(description='\n'.join(info), colour=0xff8b43)
@@ -46,47 +48,17 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         return sent
     
-    async def get_mod_log_channel(self, guild: discord.Guild|int) -> int | None:
-        """ Get snowflake channel ID of mod logs channel, `None` if it isn't set. """
-        if isinstance(guild, discord.Guild): guild = guild.id
-
-        async with self.bot.get_cursor() as cursor:
-            await cursor.execute("SELECT channel_id FROM channels WHERE feature = %s AND guild_id = %s", ("mod-logs", guild,))
-            res = await cursor.fetchone()
-        return res[0] if res else None
-
     async def send_mod_log(self, guild: discord.Guild, embed: discord.Embed) -> bool:
-        """ Send a mod log embed to the configured mod log channel.
-        
+        """ Send a mod log embed, delegating to the Logging cog (handles auto-creation).
+
         Returns:
             bool: True if the message was sent successfully, False otherwise.
         """
-        channel_id = await self.get_mod_log_channel(guild)
-        if channel_id is None:
-            return False
-        
-        channel = await self.bot.get_or_fetch_channel(guild, channel_id)
-        if channel is None:
-            async with self.bot.get_cursor() as cursor:
-                await cursor.execute("UPDATE channels SET fails = fails + 1 WHERE feature = %s AND channel_id = %s", ("mod-logs", channel_id,))
-                await cursor.execute("DELETE FROM channels WHERE channel_id = fails > %s", (3,))
-            return False
-        
-        try:
-            await channel.send(f"\n-# {Emojis.warn} Could not use webhooks. Please ensure I have the `Manage Webhooks` permission." if not channel else '', embed=embed)
-            return True
-        except discord.HTTPException:
-            return False
+        cog = self.bot.get_cog("Logging")
+        return await cog.handle_mod_log(guild, embed) if cog else False
 
-    @commands.hybrid_command(name="mod-log", description="Configure mod log channel")
-    @checks.hybrid_has_permissions(manage_guild=True)
-    async def mod_log(self, ctx: Context):
-        current_channel_id = await self.get_mod_log_channel(ctx.guild)
-        
-        status = f"Current: <#{current_channel_id}>" if current_channel_id else f"{tick(None)} Not configured"
-        view = ChannelSelector(self.bot, ctx.author, "Mod log", "mod-logs")
-        view.message = await ctx.reply(f"**Mod Log Channel**\n{status}", view=view, ephemeral=True)
-        
+    # --- Commands ---
+
     class PurgeFlags(commands.FlagConverter, delimiter=' ', prefix='-', case_insensitive=True):
 
         user: discord.User|discord.Member|None = commands.flag(
@@ -122,7 +94,9 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             aliases=['r'], default="all",
         )
 
-    @commands.hybrid_command(name="purge", description="Delete messages in bulk with customisable filters")
+    @commands.hybrid_command(name="purge", description="Delete messages in bulk with customisable filters", extras={
+        "examples": ["100 -bot yes -c hello there", "50 -u @spammer", "200 -b 123456789"],
+    })
     @commands.bot_has_permissions(manage_messages=True, read_message_history=True)
     @checks.hybrid_has_permissions(manage_messages=True)
     @app_commands.describe(amount="The amount of messages to search back in the chat through (not the amount to delete!)")
@@ -213,8 +187,8 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
     @commands.hybrid_command(name="kick", description="Kick a member")
     @commands.bot_has_permissions(kick_members=True)
     @checks.hybrid_has_permissions(kick_members=True)
-    @app_commands.describe(member="The member you want to kick", reason="The reason for the kick")
-    async def kick(self, ctx: Context, member: discord.Member, *, reason: commands.Range[str, 1, 400] = "No reason"):
+    @app_commands.describe(member="The member you want to kick", reason="The reason for the kick", dm="Whether to DM the user about their punishment")
+    async def kick(self, ctx: Context, member: discord.Member, *, reason: commands.Range[str, 1, 400] = "No reason", dm: bool = True):
 
         if member.guild_permissions.manage_guild:
             return await ctx.reply("You can't kick members with the `manage_guild` permission", ephemeral=True)
@@ -231,9 +205,10 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             f"**Reason:** {reason}"
         ]
 
-        sent = await self.send_dm_victim(ctx=ctx, action="kicked", victim=member, colour=0xf0eb56, info=info)
+        if dm:
+            sent = await self.send_dm_victim(ctx=ctx, action="kicked", victim=member, colour=0xf0eb56, info=info)
+            info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
 
-        info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
         embed = discord.Embed(description='\n'.join(info), colour=0xf0eb56)
         embed.set_author(name=f"Kicked @{member.name}", icon_url=member.display_avatar.url)
         await ctx.send(embed=embed)
@@ -241,11 +216,13 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         # Send to mod log channel
         await self.send_mod_log(ctx.guild, embed)
 
-    @commands.hybrid_command(name="mute", aliases=["timeout", "tm"], description="Time out a member")
+    @commands.hybrid_command(name="mute", aliases=["timeout", "tm"], description="Time out a member", extras={
+        "examples": ["@user 1h being annoying", "@user 1d,12h,30m", "0123456789 12d"],
+    })
     @commands.bot_has_permissions(moderate_members=True)
     @checks.hybrid_has_permissions(moderate_members=True)
-    @app_commands.describe(member="The member you want to time out", duration="The duration of the timeout; e.g., '1d, 10 days, 5secs' (separated by comma)", reason="The reason for the time out")
-    async def mute(self, ctx: Context, member: discord.Member, duration: commands.Range[str, 2, 50], *, reason: commands.Range[str, 1, 400] = "No reason"):
+    @app_commands.describe(member="The member you want to time out", duration="The duration of the timeout; e.g., '1d, 10 days, 5secs' (separated by comma)", reason="The reason for the time out", dm="Whether to DM the user about their punishment")
+    async def mute(self, ctx: Context, member: discord.Member, duration: commands.Range[str, 2, 50], *, reason: commands.Range[str, 1, 400] = "No reason", dm: bool = True):
 
         if member.guild_permissions.manage_guild:
             return await ctx.reply("You can't mute members with the `manage_guild` permission", ephemeral=True)
@@ -306,8 +283,9 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             f"**Reason:** {reason}"
         ]
 
-        sent = await self.send_dm_victim(ctx=ctx, action="timed out", victim=member, colour=0xff8b43, info=info)
-        info.insert(3, f"**DM:** {tick(True) if sent else tick(False)}")
+        if dm:
+            sent = await self.send_dm_victim(ctx=ctx, action="timed out", victim=member, colour=0xff8b43, info=info)
+            info.insert(3, f"**DM:** {tick(True) if sent else tick(False)}")
 
         embed = discord.Embed(description='\n'.join(info), colour=0xff8b43)
         embed.set_author(name=f"Timed out @{member.name}", icon_url=member.display_avatar.url)
@@ -322,8 +300,8 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
     @commands.hybrid_command(name="unmute", description="Remove a member's timeout")
     @commands.bot_has_permissions(moderate_members=True)
     @checks.hybrid_has_permissions(moderate_members=True)
-    @app_commands.describe(member="The user whose timeout you want to remove", reason="The reason for the unmute")
-    async def unmute(self, ctx: Context, member: discord.Member, *, reason: commands.Range[str, 1, 400] = "No reason"):
+    @app_commands.describe(member="The user whose timeout you want to remove", reason="The reason for the unmute", dm="Whether to DM the user about their unmute")
+    async def unmute(self, ctx: Context, member: discord.Member, *, reason: commands.Range[str, 1, 400] = "No reason", dm: bool = True):
 
         if not member.is_timed_out():
             return await ctx.reply("This user is not timed out!", ephemeral=True)
@@ -341,9 +319,10 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         await member.timeout(None, reason=f"Mod: {ctx.author.name} | Reason: {reason}")
 
-        sent = await self.send_dm_victim(ctx=ctx, action="unmuted", victim=member, colour=0x83f590, info=info)
+        if dm:
+            sent = await self.send_dm_victim(ctx=ctx, action="unmuted", victim=member, colour=0x83f590, info=info)
+            info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
 
-        info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
         embed = discord.Embed(description='\n'.join(info), colour=0x83f590)
         embed.set_author(name=f"Unmuted @{member.name}", icon_url=member.display_avatar.url)
         await ctx.send(embed=embed)
@@ -351,11 +330,13 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         # Send to mod log channel
         await self.send_mod_log(ctx.guild, embed)
 
-    @commands.hybrid_command(name="ban", description="Ban a member")
+    @commands.hybrid_command(name="ban", description="Ban a member", extras={
+        "examples": ["@user being toxic", "123456789 ban evasion"],
+    })
     @commands.bot_has_permissions(ban_members=True)
     @checks.hybrid_has_permissions(ban_members=True)
-    @app_commands.describe(member="The member you want to ban", reason="The reason for the ban")
-    async def ban(self, ctx: Context, member: discord.Member|discord.User, *, reason: commands.Range[str, 1, 400] = "No reason"):
+    @app_commands.describe(member="The member you want to ban", reason="The reason for the ban", dm="Whether to DM the user about their punishment")
+    async def ban(self, ctx: Context, member: discord.Member|discord.User, *, reason: commands.Range[str, 1, 400] = "No reason", dm: bool = True):
         
         if isinstance(member, discord.Member):
             if member.guild_permissions.manage_guild:
@@ -390,9 +371,10 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             f"**Reason:** {reason}",
         ]
 
-        sent = await self.send_dm_victim(ctx=ctx, action="banned", victim=member, colour=0xd60f78, info=info)
+        if dm:
+            sent = await self.send_dm_victim(ctx=ctx, action="banned", victim=member, colour=0xd60f78, info=info)
+            info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
 
-        info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
         embed = discord.Embed(description='\n'.join(info), colour=0xd60f78)
         embed.set_author(name=f"Banned @{member.name}", icon_url=member.display_avatar.url)
 
@@ -407,8 +389,8 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
     @commands.hybrid_command(name="unban", description="Unban a member")
     @commands.bot_has_permissions(ban_members=True)
     @checks.hybrid_has_permissions(ban_members=True)
-    @app_commands.describe(user="The user you want to unban", reason="The reason for the unban")
-    async def unban(self, ctx: Context, user: discord.User, *, reason: commands.Range[str, 1, 400] = "No reason"):
+    @app_commands.describe(user="The user you want to unban", reason="The reason for the unban", dm="Whether to DM the user about their unban")
+    async def unban(self, ctx: Context, user: discord.User, *, reason: commands.Range[str, 1, 400] = "No reason", dm: bool = True):
         await ctx.typing()
 
         try:
@@ -422,9 +404,10 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             f"**Reason:** {reason}",
         ]
 
-        sent = await self.send_dm_victim(ctx=ctx, action="unbanned", victim=user, colour=0x83f590, info=info)
+        if dm:
+            sent = await self.send_dm_victim(ctx=ctx, action="unbanned", victim=user, colour=0x83f590, info=info)
+            info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
 
-        info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
         embed = discord.Embed(description='\n'.join(info), colour=0x83f590)
         embed.set_author(name=f"Unbanned @{user.name}", icon_url=user.display_avatar.url)
         await ctx.send(embed=embed)
@@ -446,12 +429,18 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         embed.set_author(name=f"@{user.name}'s ban", icon_url=user.display_avatar.url)
         await ctx.reply(embed=embed)
 
-    @commands.hybrid_command(name="banall", description="Ban members in bulk")
+    @commands.hybrid_command(name="banall", description="Ban members in bulk", extras={
+        "examples": ["@user1 @user2 @user3 raiding the server", "123456789 987654321 @user"],
+    })
     @commands.bot_has_permissions(ban_members=True)
     @checks.hybrid_has_permissions(ban_members=True)
     @commands.cooldown(4, 12, commands.BucketType.user)
     @app_commands.describe(members="The members you want to ban (separated by spaces)", reason="The reason for the bans")
     async def banall(self, ctx: Context, members: commands.Greedy[discord.Member|discord.User], *, reason: commands.Range[str, 0, 400] = "No reason"):
+        # Greedy yields an empty list (rather than raising) when no members are given, so guard explicitly
+        if not members:
+            return await ctx.send_help(ctx.command)
+
         res: list[discord.Member|discord.User|None] = []
 
         await ctx.typing()

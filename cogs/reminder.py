@@ -106,10 +106,10 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
     def __init__(self, bot: Woolinator) -> None:
         self.bot: Woolinator = bot
 
-        # minutes; when changing, make sure to change task loop interval to match
-        self.update_interval = 10
+        self.update_interval = 10  # minutes
 
         self.asyncio_timers: dict[int, asyncio.Task] = {}
+        self.sync_asyncio_timers.change_interval(minutes=self.update_interval)
         if not self.sync_asyncio_timers.is_running():
             self.sync_asyncio_timers.start()
 
@@ -122,6 +122,8 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
     @property
     def emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name="reminder",id=1337677195694575626)
+
+    # --- Tasks ---
 
     @tasks.loop(minutes=10)
     async def sync_asyncio_timers(self):
@@ -142,6 +144,8 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
             task = asyncio.create_task(self.handle_reminder_expiration(reminder))
             self.asyncio_timers[id] = task
 
+    # --- Helpers ---
+
     async def handle_reminder_expiration(self, reminder: tuple):
         time_expire: datetime = reminder[3].replace(tzinfo=timezone.utc)
         await asyncio.sleep((time_expire - discord.utils.utcnow()).total_seconds())
@@ -154,7 +158,7 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
         time_created: datetime = reminder[2].replace(tzinfo=timezone.utc)
         time_expire: datetime = reminder[3].replace(tzinfo=timezone.utc)
         content: str = reminder[4]
-        is_dm: bool = reminder[5]
+        is_dm: int = reminder[5]  # tinyint(1)
         link: str = reminder[6]
 
         user = await self.bot.get_or_fetch_user(reminder[1])
@@ -198,7 +202,11 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
         if task:
             del self.asyncio_timers[id]
 
-    @commands.hybrid_command(name="remindme", aliases=["reminder"], description="Set a reminder")
+    # --- Commands ---
+
+    @commands.hybrid_command(name="remindme", aliases=["reminder"], description="Set a reminder", extras={
+        "examples": ["10m take a break", "7d,5h finish the project"],
+    })
     @commands.cooldown(4, 10.5, commands.BucketType.user)  # each reminder can send 2 messages
     @app_commands.describe(when="When you want to be reminded; e.g., '1d, 10 days, 5secs' (separated by comma)",
                            what="What you want to be reminded of")
@@ -238,7 +246,7 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
                 return await ctx.reply("now that's just WAYYY too far into the future...", ephemeral=True)
             return await ctx.reply("that's too far into the future... please try less than 4 years!", ephemeral=True)
 
-        is_dm_channel = True if isinstance(ctx.channel, discord.DMChannel) else False
+        is_dm_channel = isinstance(ctx.channel, discord.DMChannel)
 
         async with self.bot.get_cursor() as cursor:
             await cursor.execute('''
@@ -250,9 +258,9 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
 
         remaining_time = when - now
         if remaining_time.total_seconds() < float(self.update_interval * 60):
-            task = asyncio.create_task(self.handle_reminder_expiration(
-                tuple((id, ctx.author.id, now, when, what, is_dm_channel, ctx.message.jump_url,))),
-                                       name=f"reminder-{id}")
+            task = asyncio.create_task(
+                self.handle_reminder_expiration((id, ctx.author.id, now, when, what, is_dm_channel, ctx.message.jump_url)),
+                name=f"reminder-{id}")
             self.asyncio_timers[id] = task
 
         await ctx.reply(f"Okay dokey, <t:{round(when.timestamp())}:R>: {what}", ephemeral=False)
@@ -281,7 +289,7 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
             content = trim_str(reminder[3], 900)
 
             embed.add_field(name=f"Reminder #{i}",
-                            value=f"Created: <t:{ts_created}:F>\nExpires: <t:{ts_expire}:F> (<t:{ts_expire}:R>)\nContent: {content}",
+                            value=f"Created: <t:{ts_created}:F>\nExpires: <t:{ts_expire}:f> (<t:{ts_expire}:R>)\nContent: {content}",
                             inline=False)
 
         view = RemindersListView(author_id=ctx.author.id, bot=self.bot, asyncio_timers=self.asyncio_timers,

@@ -5,7 +5,6 @@ import subprocess
 import unicodedata
 import psutil
 import platform
-from datetime import datetime
 
 import discord
 from discord import app_commands, ui
@@ -13,12 +12,39 @@ from discord.ext import commands, tasks
 
 from .utils import checks
 from .utils.emojis import tick
-from .utils.common import trim_str, format_timedelta
+from .utils.common import trim_str
 from .utils.context import Context
+from .utils.views import GlobalGuildSwitchView, GuildInfoView
+from .utils.emojis import Emojis
 from bot import Woolinator
 
 
 log = logging.getLogger(__name__)
+
+
+
+# Public flag (badge) -> (emoji, display name). Ordered as they should appear next to a user.
+USER_FLAGS = {
+    "staff": (Emojis.Flags.staff, "Discord Staff"),
+    "partner": (Emojis.Flags.partner, "Partnered Server Owner"),
+    "hypesquad": (Emojis.Flags.hypesquad, "HypeSquad Events"),
+    "hypesquad_bravery": (Emojis.Flags.hypesquad_bravery, "HypeSquad Bravery"),
+    "hypesquad_brilliance": (Emojis.Flags.hypesquad_brilliance, "HypeSquad Brilliance"),
+    "hypesquad_balance": (Emojis.Flags.hypesquad_balance, "HypeSquad Balance"),
+    "bug_hunter": (Emojis.Flags.bug_hunter, "Bug Hunter"),
+    "bug_hunter_level_2": (Emojis.Flags.bug_hunter_level_2, "Bug Hunter Level 2"),
+    "early_supporter": (Emojis.Flags.early_supporter, "Early Supporter"),
+    "verified_bot_developer": (Emojis.Flags.verified_bot_developer, "Early Verified Bot Developer"),
+    "discord_certified_moderator": (Emojis.Flags.discord_certified_moderator, "Moderator Programs Alumni"),
+}
+
+# Presence status -> (emoji, label). Only resolvable for members (Users carry no presence).
+STATUS_DISPLAY = {
+    discord.Status.online: (Emojis.Presence.online, "Online"),
+    discord.Status.idle: (Emojis.Presence.idle, "Idle"),
+    discord.Status.dnd: (Emojis.Presence.dnd, "Do Not Disturb"),
+    discord.Status.offline: (Emojis.Presence.offline, "Offline"),
+}
 
 
 class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"):
@@ -49,6 +75,8 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
     def emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name="misc", id=1337679601522049054)
 
+    # --- Tasks ---
+
     @tasks.loop(minutes=5)
     async def rotate_status(self):
         """ A task to change the bot status at intervals. """
@@ -60,6 +88,20 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
                 name=f"{len(self.bot.users):,} users in {len(self.bot.guilds):,} guilds 🤙😎"
             )
         )
+
+    # --- Listeners ---
+
+    @commands.Cog.listener()
+    async def on_message_delete(self, message: discord.Message):
+        if message.guild:
+            self.deleted_messages[message.channel.id] = message
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before: discord.Message, after: discord.Message):
+        if after.guild and before.content != after.content:
+            self.edited_messages[before.channel.id] = (before, after)
+
+    # --- Commands ---
 
     @commands.hybrid_command(name="about", description="About myself!")
     async def about(self, ctx: Context):
@@ -79,12 +121,12 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
                         total_files += 1
         
         memory_usage = self.process.memory_full_info().uss / 1024**2
-        total_memory = psutil.virtual_memory().total / 1024**2
-        mem_pc = (memory_usage / total_memory) * 100
+        #total_memory = psutil.virtual_memory().total / 1024**2
+        #mem_pc = (memory_usage / total_memory) * 100
         cpu_usage = self.process.cpu_percent() / psutil.cpu_count()
 
         description = [
-            f"Hi! I am a private, [OSS](https://github.com/Woolyenough/The-Woolinator) bot made by [**`@woolyenough`**](https://discord.com/users/{self.bot.owner.id})",
+            f":wave: Hi! I am a private, open source bot made by [**`@woolyenough`**](https://discord.com/users/{self.bot.owner.id}).",
             "",
             f"**Uptime:** <t:{round(self.bot.uptime.timestamp())}:R>", 
             f"**Code:** {total_lines:,} lines / {total_chars:,} chars / {total_files} .py files",
@@ -94,21 +136,14 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
 
         embed = discord.Embed(title=str(self.bot.user), description='\n'.join(description), colour=0xffe3be)
         embed.set_author(name=f"@{self.bot.owner.name}", icon_url=self.bot.owner.display_avatar.url)
-        embed.add_field(name="**Exposure:**", value=f"> {len(self.bot.guilds)} Guilds (Servers)\n> {len(self.bot.users):,} Users")
-        embed.add_field(name="**Process:**", value=f"> {cpu_usage:.2f}% CPU\n> {memory_usage:.2f} MiB ({mem_pc:.2f}%) Mem")
+        embed.add_field(name="**Exposure:**", value=f"> {len(self.bot.guilds)} Guilds\n> {len(self.bot.users):,} Users")
+        embed.add_field(name="**Process:**", value=f"> {cpu_usage:.2f}% CPU\n> {memory_usage:.2f} MiB Mem")
         embed.set_thumbnail(url=self.bot.user.display_avatar.url)
         embed.set_footer(text=f"Python {platform.python_version()}  ▪  discord.py v{discord.__version__}", icon_url="https://wooly.wtf/files/The-Woolinator/python.png")
-        await ctx.reply(embed=embed)
 
-    @commands.Cog.listener()
-    async def on_message_delete(self, message: discord.Message):
-        if message.guild:
-            self.deleted_messages[message.channel.id] = message
-
-    @commands.Cog.listener()
-    async def on_message_edit(self, before: discord.Message, after: discord.Message):
-        if after.guild and before.content != after.content:
-            self.edited_messages[before.channel.id] = (before, after)
+        view = ui.View()\
+            .add_item(ui.Button(style=discord.ButtonStyle.link, label="GitHub repository", url="https://github.com/Woolyenough/The-Woolinator"))
+        await ctx.reply(embed=embed, view=view)
 
     @commands.hybrid_command(name="snipe", description="Check the last deleted message in the current channel")
     @commands.guild_only()
@@ -172,47 +207,180 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         msg = '\n'.join(map(to_string, characters))
         await ctx.send(embed=discord.Embed(description=trim_str(msg, 4096), colour=discord.Colour.random()))
 
-    @commands.hybrid_command(name="user", description="Get information about a user")
+    @commands.hybrid_command(name="user", aliases=["member", "whois"], description="Get information about a user")
     @app_commands.describe(user="The user you want to get the info of")
-    @commands.guild_only()
     async def user(self, ctx: Context, user: discord.Member|discord.User = commands.Author):
-        try:
-            pass
-            #f_user = await self.bot.fetch_user(user.id)  # get_user() does not return user banner
-        except discord.HTTPException:
-            pass
-        
-        links = []
-        description = f"**Created:** <t:{round(user.created_at.timestamp())}:F>"
-        embed = discord.Embed(title=user.display_name, colour=discord.Colour.random())
-        embed.set_author(name=f"@{user.name}", icon_url=user.display_avatar.url)
-        
+
+        # --- Global embed ---
+        global_avatar = user.avatar or user.display_avatar
+        global_embed = discord.Embed(title=user.display_name, colour=discord.Colour.blurple())
+        global_embed.set_author(name=f"@{user.name}", icon_url=global_avatar.url)
+
+        global_lines = [
+            f"**Mention:** {user.mention}",
+            f"**Created:** <t:{round(user.created_at.timestamp())}:f> (<t:{round(user.created_at.timestamp())}:R>)",
+        ]
+
+        # Public flags (badges): "<emoji> Name", comma-separated
+        badges = ', '.join(f"{emoji} {name}" for flag, (emoji, name) in USER_FLAGS.items() if getattr(user.public_flags, flag, False))
+        if badges:
+            global_lines.append(f"**Flags:** {badges}")
+
+        # Visibility (presence) - only available for members
         if isinstance(user, discord.Member):
-            description += f"\n**Joined:** <t:{round(user.joined_at.timestamp())}:F>"
-            embed.add_field(name="Roles:", value=', '.join(role.mention for role in user.roles), inline=False)
+            emoji, label = STATUS_DISPLAY.get(user.status, (Emojis.Presence.offline, "Offline"))
+            platforms = []
+            if user.desktop_status != discord.Status.offline: platforms.append("Desktop")
+            if user.mobile_status != discord.Status.offline: platforms.append("Mobile")
+            if user.web_status != discord.Status.offline: platforms.append("Web")
+            visibility = f"{emoji} {label}" + (f" ({', '.join(platforms)})" if platforms else "")
+            global_lines.append(f"**Visibility:** {visibility}")
 
-            if ctx.guild.owner == user: perms = "All - this user owns the guild."
-            elif user.guild_permissions.administrator: perms = "Administrator - this pretty much overrides all other permissions."
-            else: perms = ', '.join(f'`{perm}`' for perm, value in iter(user.guild_permissions) if value)
+        if user.public_flags.spammer:
+            global_lines.append(f"\n{Emojis.warn} This account is flagged as a spammer by Discord.")
 
-            embed.add_field(name="Permissions:", value=perms, inline=False)
+        global_embed.description = '\n'.join(global_lines)
 
+        # Activity (presence) - only available for members
+        if isinstance(user, discord.Member) and user.activities:
+            activities = []
+            for activity in user.activities:
+                if isinstance(activity, discord.Spotify):
+                    activities.append(f"🎵 Listening to **{activity.title}** by {activity.artist}")
+                elif isinstance(activity, discord.Streaming):
+                    activities.append(f"📺 Streaming **[{activity.name}]({activity.url})**")
+                elif isinstance(activity, discord.Game):
+                    activities.append(f"🎮 Playing **{activity.name}**")
+                elif isinstance(activity, discord.CustomActivity):
+                    emoji = str(activity.emoji) + " " if activity.emoji else ""
+                    activities.append(f"{emoji}{activity.name or 'Custom Status'}")
+                elif activity.name:
+                    activities.append(f"**{activity.name}**")
+            if activities:
+                global_embed.add_field(name="Activity", value='\n'.join(activities[:3]), inline=False)
+
+        global_embed.set_footer(text=f"User ID: {user.id}")
+
+        # --- Guild embed (member only) ---
+        guild_embed = None
+        if isinstance(user, discord.Member) and ctx.guild:
+            guild_embed = discord.Embed(title=user.display_name, colour=user.color if user.color.value != 0 else discord.Colour.blurple())
+            guild_embed.set_author(name=f"@{user.name}", icon_url=user.display_avatar.url)
+            # Only show a thumbnail when the member has a guild-specific avatar (differs from global)
             if user.guild_avatar:
-                links.append(("Guild Avatar", user.guild_avatar.url))
-                embed.set_thumbnail(url=user.guild_avatar.url)
-            if user.guild_banner: links.append(("Guild Banner", user.guild_banner.url))
+                guild_embed.set_thumbnail(url=user.guild_avatar.url)
 
-        links.append(("Avatar", user.display_avatar.url))
+            member_lines = [
+                f"**Joined Server:** <t:{round(user.joined_at.timestamp())}:f> (<t:{round(user.joined_at.timestamp())}:R>)",
+                f"**Join Position:** #{sorted(ctx.guild.members, key=lambda m: m.joined_at).index(user) + 1} / {ctx.guild.member_count}"
+            ]
+            if user.premium_since:
+                member_lines.append(f"**Boosting Since:** <t:{round(user.premium_since.timestamp())}:R>")
+            if user.timed_out_until:
+                member_lines.append(f"**Timed Out Until:** <t:{round(user.timed_out_until.timestamp())}:R>")
+            guild_embed.description = '\n'.join(member_lines)
 
-        embed.add_field(name="Links:", value='\n'.join(f"{i}. [**{name}**]({url.replace('size=1024', 'size=4096')})" for i, (name, url) in enumerate(links, start=1)), inline=False)
+            if len(user.roles) > 1:
+                roles = [role.mention for role in reversed(user.roles[1:])]
+                roles_text = ', '.join(roles) if len(', '.join(roles)) <= 1024 else f"{len(roles)} roles"
+                guild_embed.add_field(name=f"Roles [{len(user.roles) - 1}]:", value=roles_text, inline=False)
 
-        embed.description = description
-        embed.set_footer(text=f"ID: {user.id}")
-        await ctx.reply(embed=embed)
-        # Add buttons 'avatar' & 'banner' which are red/green (depending on if the user has them) which will self.invoke_command() the command
+            if ctx.guild.owner == user:
+                perms_text = "Owner - has all permissions"
+            elif user.guild_permissions.administrator:
+                perms_text = "Administrator - has all permissions"
+            else:
+                perms = [f'`{perm}`' for perm, value in iter(user.guild_permissions) if value]
+                perms_text = ', '.join(perms) if perms else "None..."
+            guild_embed.add_field(name="Permissions:", value=perms_text, inline=False)
+            guild_embed.set_footer(text=f"User ID: {user.id}")
+
+        default_guild = ctx.invoked_with == "member" and guild_embed is not None
+        default_embed = guild_embed if default_guild else global_embed
+
+        view = GlobalGuildSwitchView(ctx.author.id, global_embed, guild_embed, default_guild=default_guild)
+        view.message = await ctx.reply(embed=default_embed, view=view)
 
 
-    @commands.hybrid_command(name="transcode", description="Convert between different number systems and encodings")
+    @commands.hybrid_command(name="guild", aliases=["server"], description="Get information about this server")
+    @commands.guild_only()
+    async def guild(self, ctx: Context):
+        guild = ctx.guild
+        embed = discord.Embed(title=guild.name, color=discord.Color.blurple())
+        
+        if guild.icon:
+            embed.set_thumbnail(url=guild.icon.url)
+        
+        # Basic Info
+        owner = await self.bot.get_or_fetch_member(guild, guild.owner_id)
+        info_lines = [
+            f"**Owner:** {owner.mention if owner else 'Unknown'} (`{guild.owner_id}`)",
+            f"**Created:** <t:{round(guild.created_at.timestamp())}:f> (<t:{round(guild.created_at.timestamp())}:R>)",
+            f"**Verification Level:** {guild.verification_level.name.replace('_', ' ').title()}",
+        ]
+        
+        if guild.description:
+            info_lines.insert(0, f"*{guild.description}*\n")
+        
+        embed.add_field(name="Server Information", value='\n'.join(info_lines), inline=False)
+        
+        # Statistics
+        text_channels = len(guild.text_channels)
+        voice_channels = len(guild.voice_channels)
+        categories = len(guild.categories)
+        
+        # Member statistics
+        total_members = guild.member_count
+        bots = sum(1 for m in guild.members if m.bot)
+        humans = total_members - bots
+        
+        # Status count (only if members are cached)
+        online = sum(1 for m in guild.members if m.status == discord.Status.online)
+        idle = sum(1 for m in guild.members if m.status == discord.Status.idle)
+        dnd = sum(1 for m in guild.members if m.status == discord.Status.dnd)
+        offline = sum(1 for m in guild.members if m.status == discord.Status.offline)
+        
+        stats_lines = [
+            f"**Members:** {humans:,} (+{bots:,} bots)",
+            f"**Online:** {Emojis.Presence.online} {online:,}, {Emojis.Presence.idle} {idle:,}, {Emojis.Presence.dnd} {dnd:,}, {Emojis.Presence.offline} {offline:,}",
+            f"**Channels:** {text_channels} text, {voice_channels} voice ({text_channels + voice_channels})",
+            f"**Roles:** {len(guild.roles) - 1}",  # Exclude @everyone
+            f"**Emojis:** {len(guild.emojis)} / {guild.emoji_limit}",
+            f"**Stickers:** {len(guild.stickers)} / {guild.sticker_limit}",
+        ]
+        embed.description = '\n'.join(stats_lines)
+        
+        # Boost info
+        boost_lines = [
+            f"**Level:** {guild.premium_tier} {'⭐' * guild.premium_tier}",
+            f"**Boosts:** {guild.premium_subscription_count or 0}" + (f" ({len(guild.premium_subscribers)} boosters)" if guild.premium_subscribers else ""),
+        ]
+
+        embed.add_field(name="Boosts", value='\n'.join(boost_lines), inline=False)
+        
+        # Links
+        links = []
+        if guild.icon:
+            links.append(f"[Icon]({guild.icon.replace(size=4096).url})")
+        if guild.banner:
+            links.append(f"[Banner]({guild.banner.replace(size=4096).url})")
+            embed.set_image(url=guild.banner.replace(size=4096).url)
+        if guild.splash:
+            links.append(f"[Splash]({guild.splash.replace(size=4096).url})")
+        if guild.vanity_url:
+            links.append(f"[Vanity URL]({guild.vanity_url})")
+        
+        if links:
+            embed.add_field(name="Links", value=" • ".join(links), inline=False)
+        
+        embed.set_footer(text=f"Server ID: {guild.id}")
+
+        view = GuildInfoView(guild)
+        view.message = await ctx.reply(embed=embed, view=view)
+
+    @commands.hybrid_command(name="transcode", description="Convert between different number systems and encodings", extras={
+        "examples": ["dec hex 255", "str base64 hello world", "binary decimal 1010"],
+    })
     @app_commands.describe(
         from_format="The format of the input",
         to_format="The format you want to convert to",
@@ -317,10 +485,7 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
             await ctx.reply(embed=embed)
             
         except ValueError as e:
-            await ctx.reply(f"{tick(False)} Conversion error: {str(e)}", ephemeral=True)
-        except Exception as e:
-            log.exception("Error in binary conversion command")
-            await ctx.reply(f"{tick(False)} An error occurred during conversion: {str(e)}", ephemeral=True)
+            await ctx.reply(f"{tick(False)} {str(e)}", ephemeral=True)
 
     @transcode.autocomplete(name="from_format")
     @transcode.autocomplete(name="to_format")

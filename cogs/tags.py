@@ -1,13 +1,11 @@
-from datetime import datetime, timezone
+from datetime import timezone
 import logging
-from typing import Any
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from .utils.views import YesOrNo
-from .utils.common import trim_str
 from .utils.context import Context
 from bot import Woolinator
 
@@ -28,6 +26,8 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
     @property
     def emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name="tags", id=1337677206175879168)
+
+    # --- Helpers ---
 
     def prev_tag(self, tag: str) -> str:
         return tag.replace('*', '\\*').replace('`', '\\`').replace('_', '\\_')
@@ -126,6 +126,8 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
         return (True, '')
 
 
+    # --- Autocomplete ---
+
     async def owned_tag_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         tags = await self.get_all_tags_starts_with(current, user=interaction.user, guild=interaction.guild, limit=15)
 
@@ -143,6 +145,8 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
         
         options = [app_commands.Choice(name=tag['name'], value=tag['name']) for tag in tags]
         return options
+
+    # --- Commands ---
 
     @commands.hybrid_group(name="tag", description="Get a tag's contents", fallback="get")
     @app_commands.describe(name="The name of the tag")
@@ -330,32 +334,34 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
         embed.set_author(name=f"Owned by @{tag_owner}", icon_url=tag_owner.display_avatar.url)
         await ctx.reply(embed=embed)
 
-    @tag.command(description="Search for a tag", hidden=True)
-    @app_commands.describe(query="The query to search for")
-    async def search(self, ctx: Context, *, query: commands.Range[str, 3, 32]):
+    @tag.command(description="Search for tags by name")
+    @app_commands.describe(query="The text to search tag names for")
+    async def search(self, ctx: Context, *, query: commands.Range[str, 2, 32]):
         query = ''.join(query.splitlines())
         query = await commands.clean_content(fix_channel_mentions=True, use_nicknames=False).convert(ctx, query)
 
-        if not await self.bot.is_owner(ctx.author):
-            await ctx.reply("This feature is not implemented yet :grimacing:", ephemeral=True)
-            return
+        # Escape LIKE wildcards so the query is treated as literal text
+        escaped = query.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
         async with self.bot.get_cursor() as cursor:
             await cursor.execute('''
-                    SELECT user_id, name
+                    SELECT name
                     FROM tags
-                    WHERE guild_id = %s AND MATCH(name)
-                        AGAINST (%s IN NATURAL LANGUAGE MODE) ORDER BY MATCH(name)
-                        AGAINST (%s IN NATURAL LANGUAGE MODE)
-                    DESC LIMIT 20
-                ''', (ctx.guild.id, query, query))
+                    WHERE guild_id = %s AND LOWER(name) LIKE %s
+                    ORDER BY name ASC
+                    LIMIT 20
+                ''', (ctx.guild.id, f"%{escaped}%"))
             tags = await cursor.fetchall()
 
         if len(tags) == 0:
-            await ctx.reply("No tags found!", ephemeral=True)
+            await ctx.reply(f"No tags found matching '{self.prev_tag(query)}'.", ephemeral=True)
             return
 
-        await ctx.reply(f"Tags containing '{query}': {', '.join([tag[1] for tag in tags])}")
+        names = '\n'.join(f"{i}. {self.prev_tag(tag[0])}" for i, tag in enumerate(tags, start=1))
+        embed = discord.Embed(description=names, colour=discord.Colour.random())
+        embed.set_author(name=f"Tags matching '{query}'", icon_url=getattr(ctx.guild.icon, "url", None))
+        embed.set_footer(text=f"{len(tags)} result{'' if len(tags) == 1 else 's'}{' (showing first 20)' if len(tags) == 20 else ''}")
+        await ctx.reply(embed=embed)
 
     @tag.command(description="Modify the content of a tag", aliases=["edit"])
     @app_commands.describe(name="The name of the tag", new_content="The new content of the tag")

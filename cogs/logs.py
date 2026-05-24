@@ -1,0 +1,444 @@
+import logging
+
+import discord
+from discord import ui
+from discord.ext import commands
+
+from .utils import checks
+from .utils.common import trim_str
+from .utils.context import Context
+from .utils.views import handle_view_edit
+from bot import Woolinator
+
+
+log = logging.getLogger(__name__)
+
+
+# Registry of configurable log types. Add an entry here (plus a call site/listener)
+# to make a new log type appear automatically in the `/logging` UI.
+LOG_FEATURES: dict[str, dict[str, str]] = {
+    "mod-logs": {
+        "label": "Moderation Logs",
+        "desc": "Kicks, bans, mutes, purges, etc.",
+        "emoji": "🛡️",
+    },
+    "log-messages": {
+        "label": "Message Logs",
+        "desc": "Edited & deleted messages",
+        "emoji": "✏️",
+    },
+    "log-voice": {
+        "label": "Voice Logs",
+        "desc": "Members joining, leaving or moving voice channels",
+        "emoji": "🔊",
+    },
+}
+
+ACCENT = 0xFFF9E0
+
+
+class FeatureSelect(ui.Select):
+    """ Overview dropdown: pick a log type to configure. """
+
+    def __init__(self, parent: "LoggingView"):
+        self.lview = parent
+        options = []
+        for code, meta in LOG_FEATURES.items():
+            name = parent._channel_name(parent.config.get(code))
+            options.append(discord.SelectOption(
+                label=meta["label"],
+                value=code,
+                description=trim_str(f"Currently: {name}" if name else "Not configured", 100),
+                emoji=meta["emoji"],
+            ))
+        super().__init__(placeholder="Choose a log type to configure…", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        code = self.values[0]
+        self.lview.show_feature(code)
+        await interaction.response.edit_message(embed=self.lview.feature_embed(code), view=self.lview)
+
+
+class FeatureChannelSelect(ui.ChannelSelect):
+    """ Feature dropdown: pick the channel a log type is sent to. """
+
+    def __init__(self, parent: "LoggingView", code: str):
+        self.lview = parent
+        self.code = code
+        super().__init__(placeholder="Select a channel…", min_values=1, max_values=1, channel_types=[discord.ChannelType.text])
+        current = parent.config.get(code)
+        if current:
+            self.default_values = [discord.Object(id=current)]
+
+    async def callback(self, interaction: discord.Interaction):
+        channel = self.values[0]
+        await self.lview.cog.set_channel(self.lview.guild_id, self.code, channel.id)
+        await self.lview.cog.set_mod_log_setup_done(self.lview.guild_id, True)
+        self.lview.config[self.code] = channel.id
+        self.lview.show_overview()
+        await interaction.response.edit_message(embed=self.lview.overview_embed(), view=self.lview)
+
+
+class DisableButton(ui.Button):
+    def __init__(self, parent: "LoggingView"):
+        self.lview = parent
+        super().__init__(label="Disable this log", style=discord.ButtonStyle.danger)
+
+    async def callback(self, interaction: discord.Interaction):
+        code = self.lview.active_feature
+        await self.lview.cog.remove_channel(self.lview.guild_id, code)
+        self.lview.config[code] = None
+        self.lview.show_overview()
+        await interaction.response.edit_message(embed=self.lview.overview_embed(), view=self.lview)
+
+
+class BackButton(ui.Button):
+    def __init__(self, parent: "LoggingView"):
+        self.lview = parent
+        super().__init__(label="Back", style=discord.ButtonStyle.secondary)
+
+    async def callback(self, interaction: discord.Interaction):
+        self.lview.show_overview()
+        await interaction.response.edit_message(embed=self.lview.overview_embed(), view=self.lview)
+
+
+class LoggingView(ui.View):
+    """ Guided two-level config: overview -> per-feature channel picker. """
+
+    def __init__(self, cog: "Logging", author: discord.User | discord.Member, guild_id: int, config: dict[str, int | None]):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.bot = cog.bot
+        self.author_id = author.id
+        self.guild_id = guild_id
+        self.config = config
+        self.active_feature: str | None = None
+        self.message = None
+        self.show_overview()
+
+    def _channel_name(self, channel_id: int | None) -> str | None:
+        if not channel_id:
+            return None
+        guild = self.bot.get_guild(self.guild_id)
+        channel = guild.get_channel(channel_id) if guild else None
+        return f"#{channel.name}" if channel else None
+
+    def overview_embed(self) -> discord.Embed:
+        lines = []
+        for code, meta in LOG_FEATURES.items():
+            channel_id = self.config.get(code)
+            status = f"<#{channel_id}>" if channel_id else "*Not set*"
+            lines.append(f"{meta['emoji']} **{meta['label']}:** {status}\n-# > {meta['desc']}")
+        embed = discord.Embed(title="Server Logging", description='\n\n'.join(lines), colour=ACCENT)
+        embed.set_footer(text="Pick a log type below to set or change its channel")
+        return embed
+
+    def feature_embed(self, code: str) -> discord.Embed:
+        meta = LOG_FEATURES[code]
+        channel_id = self.config.get(code)
+        status = f"Currently logging to <#{channel_id}>" if channel_id else "Not currently set"
+        verb = "change" if channel_id else "set"
+        embed = discord.Embed(
+            title=f"{meta['emoji']} {meta['label']}",
+            description=f"{meta['desc']}\n\n{status}\n\nSelect a channel below to {verb} where these logs are sent.",
+            colour=ACCENT,
+        )
+        return embed
+
+    def show_overview(self):
+        self.clear_items()
+        self.active_feature = None
+        self.add_item(FeatureSelect(self))
+
+    def show_feature(self, code: str):
+        self.clear_items()
+        self.active_feature = code
+        self.add_item(FeatureChannelSelect(self, code))
+        if self.config.get(code):
+            self.add_item(DisableButton(self))
+        self.add_item(BackButton(self))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("not your button to press ,-,", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        await handle_view_edit(self.message, view=self)
+
+
+class Logging(commands.Cog, name="Logging", description="Configure server event logging"):
+
+    def __init__(self, bot: Woolinator) -> None:
+        self.bot: Woolinator = bot
+        self._webhooks: dict[int, discord.Webhook] = {}
+
+    @property
+    def emoji(self) -> discord.PartialEmoji:
+        return discord.PartialEmoji(name="📝")
+
+    # --- Database helpers ---
+
+    async def get_log_channel(self, guild: discord.Guild | int, feature: str) -> int | None:
+        """ Get snowflake channel ID for a log feature, `None` if it isn't set. """
+        guild_id = guild.id if isinstance(guild, discord.Guild) else guild
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("SELECT channel_id FROM channels WHERE feature = %s AND guild_id = %s", (feature, guild_id))
+            res = await cursor.fetchone()
+        return res[0] if res else None
+
+    async def get_all_log_channels(self, guild_id: int) -> dict[str, int | None]:
+        """ Map every known log feature to its configured channel ID (or `None`). """
+        config: dict[str, int | None] = {code: None for code in LOG_FEATURES}
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("SELECT feature, channel_id FROM channels WHERE guild_id = %s", (guild_id,))
+            rows = await cursor.fetchall()
+        for feature, channel_id in rows:
+            if feature in config:
+                config[feature] = channel_id
+        return config
+
+    async def set_channel(self, guild_id: int, feature: str, channel_id: int) -> None:
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute('''
+                    INSERT INTO channels (feature, guild_id, channel_id)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE channel_id = %s
+                ''', (feature, guild_id, channel_id, channel_id))
+
+    async def remove_channel(self, guild_id: int, feature: str) -> None:
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("DELETE FROM channels WHERE guild_id = %s AND feature = %s", (guild_id, feature))
+
+    async def remove_channel_by_id(self, guild_id: int, channel_id: int) -> None:
+        """ Drop every feature config pointing at a (now-gone) channel. """
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("DELETE FROM channels WHERE guild_id = %s AND channel_id = %s", (guild_id, channel_id))
+
+    async def get_mod_log_setup_done(self, guild_id: int) -> bool:
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("SELECT mod_log_setup_done FROM guild_settings WHERE guild_id = %s", (guild_id,))
+            res = await cursor.fetchone()
+        return bool(res[0]) if res else False
+
+    async def set_mod_log_setup_done(self, guild_id: int, value: bool = True) -> None:
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute('''
+                    INSERT INTO guild_settings (guild_id, mod_log_setup_done)
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE mod_log_setup_done = %s
+                ''', (guild_id, int(value), int(value)))
+
+    # --- Sending ---
+
+    async def _get_webhook(self, channel: discord.TextChannel) -> discord.Webhook | None:
+        """ Get (or lazily create + cache) a bot-owned webhook for the channel. """
+        cached = self._webhooks.get(channel.id)
+        if cached is not None:
+            return cached
+
+        if not channel.permissions_for(channel.guild.me).manage_webhooks:
+            return None
+
+        try:
+            for wh in await channel.webhooks():
+                if wh.user and wh.user.id == self.bot.user.id:
+                    self._webhooks[channel.id] = wh
+                    return wh
+
+            avatar = None
+            try:
+                avatar = await self.bot.user.display_avatar.read()
+            except discord.HTTPException:
+                pass
+
+            wh = await channel.create_webhook(name="Woolinator Logs", avatar=avatar, reason="Logging webhook")
+            self._webhooks[channel.id] = wh
+            return wh
+        except discord.HTTPException:
+            return None
+
+    async def _send_via_webhook(self, channel: discord.TextChannel, embed: discord.Embed, view: ui.View | None = None) -> bool:
+        """ Send a log embed through a webhook, falling back to a normal message. """
+        wh = await self._get_webhook(channel)
+        if wh is not None:
+            kwargs = dict(embed=embed, username=self.bot.user.name, avatar_url=self.bot.user.display_avatar.url)
+            if view is not None:
+                kwargs["view"] = view
+                kwargs["wait"] = True
+            try:
+                await wh.send(**kwargs)
+                return True
+            except discord.NotFound:
+                self._webhooks.pop(channel.id, None)
+                wh = await self._get_webhook(channel)
+                if wh is not None:
+                    try:
+                        await wh.send(**kwargs)
+                        return True
+                    except discord.HTTPException:
+                        pass
+            except discord.HTTPException:
+                pass
+
+        try:
+            if view is not None:
+                await channel.send(embed=embed, view=view)
+            else:
+                await channel.send(embed=embed)
+            return True
+        except discord.HTTPException:
+            return False
+
+    async def send_log(self, guild: discord.Guild, feature: str, embed: discord.Embed, view: ui.View | None = None) -> bool:
+        """ Send a log embed to the configured channel for a feature, if set. """
+        channel_id = await self.get_log_channel(guild, feature)
+        if channel_id is None:
+            return False
+
+        channel = guild.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await guild.fetch_channel(channel_id)
+            except discord.NotFound:
+                # Channel was deleted (e.g. while the bot was offline) — drop the stale config.
+                await self.remove_channel_by_id(guild.id, channel_id)
+                return False
+            except discord.HTTPException:
+                return False  # transient failure — leave the config intact
+
+        return await self._send_via_webhook(channel, embed, view)
+
+    # --- Mod log entry point (called by the Moderation cog) ---
+
+    async def handle_mod_log(self, guild: discord.Guild, embed: discord.Embed) -> bool:
+        """ Send a mod-log embed, auto-creating the channel on first use if needed. """
+        channel_id = await self.get_log_channel(guild, "mod-logs")
+        if channel_id is None:
+            channel = await self.maybe_auto_create_mod_log(guild)
+            if channel is None:
+                return False
+            return await self._send_via_webhook(channel, embed)
+        return await self.send_log(guild, "mod-logs", embed)
+
+    async def maybe_auto_create_mod_log(self, guild: discord.Guild) -> discord.TextChannel | None:
+        """ Create a mods-only mod-log channel once per guild, with an info message. """
+        if await self.get_mod_log_setup_done(guild.id):
+            return None
+
+        me = guild.me
+        if me is None or not me.guild_permissions.manage_channels:
+            return None  # don't flag as done; retry once perms are granted
+
+        await self.set_mod_log_setup_done(guild.id, True)
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, manage_webhooks=True),
+        }
+        for role in guild.roles:
+            if role.permissions.manage_guild or role.permissions.administrator:
+                overwrites[role] = discord.PermissionOverwrite(view_channel=True)
+
+        try:
+            channel = await guild.create_text_channel(
+                "mod-logs",
+                overwrites=overwrites,
+                reason="Auto-created mod log channel (no logging configured)",
+            )
+        except discord.HTTPException:
+            log.warning("Failed to auto-create mod-log channel in guild %s", guild.id)
+            return None
+
+        await self.set_channel(guild.id, "mod-logs", channel.id)
+
+        info = discord.Embed(
+            title="Mod log channel created",
+            description=(
+                "Channel was created because no mod-log channel has been set. "
+                "To disable mod logging, either delete this channel and I won't bother you again "
+                "or configure logging channels with the </logging:1507925598805164112> command."
+            ),
+            colour=ACCENT,
+        )
+        try:
+            await channel.send(embed=info)
+        except discord.HTTPException:
+            pass
+
+        return channel
+
+    # --- Event listeners ---
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+        """ Clean up any log/feature configs when their channel is deleted. """
+        self._webhooks.pop(channel.id, None)
+        await self.remove_channel_by_id(channel.guild.id, channel.id)
+
+    @commands.Cog.listener()
+    async def on_message_delete(self, message: discord.Message):
+        if message.guild is None or message.author.bot:
+            return
+
+        embed = discord.Embed(
+            description=trim_str(message.content, 4096) if message.content else "*No text content*",
+            colour=0xf93838,
+            timestamp=message.created_at,
+        )
+        embed.set_author(name=f"@{message.author.name}", icon_url=message.author.display_avatar.url)
+        embed.add_field(name="Channel", value=message.channel.mention, inline=True)
+        if message.attachments:
+            embed.add_field(name="Attachments", value='\n'.join(f"- {a.filename}" for a in message.attachments), inline=False)
+        embed.set_footer(text=f"Message Deleted • User ID: {message.author.id}")
+        await self.send_log(message.guild, "log-messages", embed)
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before: discord.Message, after: discord.Message):
+        if after.guild is None or after.author.bot or before.content == after.content:
+            return
+
+        embed = discord.Embed(colour=0xff8d42, timestamp=after.edited_at or discord.utils.utcnow())
+        embed.set_author(name=f"@{after.author.name}", icon_url=after.author.display_avatar.url)
+        embed.add_field(name="Before", value=trim_str(before.content or "*empty*", 1024), inline=False)
+        embed.add_field(name="After", value=trim_str(after.content or "*empty*", 1024), inline=False)
+        embed.add_field(name="Channel", value=after.channel.mention, inline=True)
+        embed.set_footer(text=f"Message Edited • User ID: {after.author.id}")
+
+        view = ui.View()
+        view.add_item(ui.Button(style=discord.ButtonStyle.link, label="Jump to Message", url=after.jump_url))
+        await self.send_log(after.guild, "log-messages", embed, view=view)
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
+        if member.bot or before.channel == after.channel:
+            return
+
+        if before.channel is None:
+            action, detail, colour = "joined", after.channel.mention, 0x83f590
+        elif after.channel is None:
+            action, detail, colour = "left", before.channel.mention, 0xf93838
+        else:
+            action, detail, colour = "moved", f"{before.channel.mention} → {after.channel.mention}", ACCENT
+
+        embed = discord.Embed(description=f"**Channel:** {detail}", colour=colour, timestamp=discord.utils.utcnow())
+        embed.set_author(name=f"@{member.name} {action} a voice channel", icon_url=member.display_avatar.url)
+        embed.set_footer(text=f"Voice {action.capitalize()} • User ID: {member.id}")
+        await self.send_log(member.guild, "log-voice", embed)
+
+    # --- Command ---
+
+    @commands.hybrid_command(name="logging", description="Configure server logging channels")
+    @commands.guild_only()
+    @checks.hybrid_has_permissions(manage_guild=True)
+    async def logging_command(self, ctx: Context):
+        config = await self.get_all_log_channels(ctx.guild.id)
+        view = LoggingView(self, ctx.author, ctx.guild.id, config)
+        view.message = await ctx.reply(embed=view.overview_embed(), view=view, ephemeral=True)
+
+
+async def setup(bot: Woolinator) -> None:
+    await bot.add_cog(Logging(bot))

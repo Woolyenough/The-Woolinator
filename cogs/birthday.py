@@ -29,12 +29,14 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
         self.birthday_notifier.cancel()
 
     async def cog_check(self, ctx: Context) -> bool:
-        if ctx.guild: return True
-        else: raise commands.NoPrivateMessage
+        if ctx.guild is None: raise commands.NoPrivateMessage()
+        return True
 
     @property
     def emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name="\U0001f382")
+
+    # --- Helpers ---
 
     async def get_year_last_announced(self, user: discord.Member|discord.User|int, guild: discord.Guild|int) -> int|None:
         if isinstance(guild, discord.Guild): guild = guild.id
@@ -103,6 +105,8 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
         day = dt.day
         suffix = ordinal_suffix(day)
         return dt.strftime(f"{day}{suffix} %B %Y")
+
+    # --- Commands ---
 
     @commands.hybrid_group(name="birthday", description="Get your birth date for this guild", fallback="get")
     async def birthday(self, ctx: Context):
@@ -191,11 +195,10 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
         channel_id = await self.get_bday_channel(ctx.guild)
 
         status = f"Current: <#{channel_id}>" if channel_id else f"{tick(None)} Not configured"
+        view = ChannelSelector(self.bot, ctx.author, "Birthday", "birthdays", channel_id)
+        view.message = await ctx.reply(f"### Birthday Channel", view=view, ephemeral=True)
 
-        channel = await self.bot.get_or_fetch_channel(ctx.guild, channel_id)
-        warning = f"\n-# {Emojis.warn} This channel doesn't seem to exist anymore." if not channel else ''
-        view = ChannelSelector(self.bot, ctx.author, "Birthday", "birthdays")
-        view.message = await ctx.reply(f"**Birthday Channel**\n{status}{warning}", view=view, ephemeral=True)
+    # --- Tasks ---
 
     @tasks.loop(time=time(12, 0, tzinfo=timezone.utc))
     async def birthday_notifier(self):
@@ -215,6 +218,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
             rows = await cursor.fetchall()
 
         index: dict[int, list[tuple[int, int]]] = {}
+        guild_channels: dict[int, int] = {}
         for row in rows:
             guild_id: int = row[0]
             user_id: int = row[1]
@@ -225,7 +229,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
             if last_announced == now.year: continue
 
             # If bot is not in the guild, skip it
-            if guild_id not in [guild.id for guild in self.bot.guilds]:
+            if self.bot.get_guild(guild_id) is None:
                 continue
 
             birthday_channel_id = await self.get_bday_channel(guild_id)
@@ -233,16 +237,15 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
             if birthday_channel_id is None: continue
             year = int(date.split('.')[2])
             index.setdefault(guild_id, []).append((user_id, year))
+            guild_channels[guild_id] = birthday_channel_id
 
         for guild_id, user_list in index.items():
             await asyncio.sleep(12.5)
 
             guild = await self.bot.get_or_fetch_guild(guild_id)
-        
-            channel = await self.bot.get_or_fetch_channel(guild, birthday_channel_id)
-            if not channel:  # channel doesn't exist anymore
-                async with self.bot.get_cursor() as cursor:
-                    await cursor.execute("UPDATE channels SET fails = fails + 1 WHERE feature = %s AND channel_id = %s", ("birthdays", birthday_channel_id,))
+
+            channel = await self.bot.get_or_fetch_channel(guild, guild_channels[guild_id])
+            if not channel:
                 continue
 
             if not guild.chunked:
@@ -268,10 +271,6 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
                 footer = "May you " + ('' if num == 1 else 'both ' if num == 2 else 'all ') + "have a blessed day 🎂🎉"
                 message = f"{'\n'.join(birthday_people)}\n\n{footer}"
                 await channel.send(message)
-        
-        # Remove channels that have failed thrice, and most likely no longer exist
-        async with self.bot.get_cursor() as cursor:
-            await cursor.execute("DELETE FROM channels WHERE channel_id = fails > %s", (3,))
 
 
 async def setup(bot: Woolinator) -> None:

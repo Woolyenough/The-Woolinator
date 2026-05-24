@@ -12,6 +12,7 @@ from discord.ext import commands
 import cogs.utils.pagination as paginator
 from bot import Woolinator
 from .utils.context import Context
+from .utils.common import trim_str
 
 
 log = logging.getLogger(__name__)
@@ -55,10 +56,12 @@ class Fun(commands.Cog, name="Fun", description="Welcome to the house of fun"):
 
             embed = discord.Embed(
                 title=f"**{entry['word']}**",
-                description=f"{definition}\n\n**Example**\n*{example}*",
+                description=trim_str(definition, 4096),
                 colour=discord.Colour.dark_orange(),
                 url=entry['permalink']
             )
+
+            embed.add_field(name="Example", value=f"*{trim_str(example, 1024)}*", inline=True)
 
             def parse_written_on(timestamp: str) -> datetime:
                 # Try parsing with microseconds first
@@ -68,7 +71,7 @@ class Fun(commands.Cog, name="Fun", description="Welcome to the house of fun"):
                     # Otherwise, exclude it
                     return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
 
-            embed.set_footer(text=f"Written on: {parse_written_on(entry['written_on']).strftime("%d/%m/%Y at %H:%M:%S (UTC)")}  ▪  👍 {entry['thumbs_up']} - 👎 {entry['thumbs_down']}")
+            embed.set_footer(text=f"Written on: {parse_written_on(entry['written_on']).strftime('%d/%m/%Y at %H:%M:%S (UTC)')}  ▪  👍 {entry['thumbs_up']} - 👎 {entry['thumbs_down']}")
             embed.set_author(name=f"Posted by {entry['author']}")
             embeds_to_paginate.append(embed)
 

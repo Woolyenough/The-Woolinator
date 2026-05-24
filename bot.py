@@ -13,8 +13,10 @@ from cogs.utils.context import Context
 
 log = logging.getLogger(__name__)
 
-# all slash commands are hybrid commands, and majority of it's features use `commands` package instead of `app_commands`
+# All slash commands are hybrid commands; the majority of its features use the
+# `commands` extension rather than `app_commands`.
 class AppCommandsTree(app_commands.CommandTree):
+    """ Placeholder subclass for future app-command-tree customisation. """
     pass
 
 class Woolinator(commands.Bot):
@@ -46,7 +48,7 @@ class Woolinator(commands.Bot):
             with open('database.sql', "r", encoding="utf-8") as f:
                 sql = f.read()
 
-            # Remove comments
+            # Strip `--` comment lines and split on `;`
             lines = []
             for line in sql.splitlines():
                 if not line.strip().startswith('--'):
@@ -58,7 +60,7 @@ class Woolinator(commands.Bot):
             for statement in statements:
                 await cursor.execute(statement)
 
-            # Get the SQL server's UTC offset, for certain features
+            # Get the SQL server's UTC offset to account for timezone differences
             await cursor.execute("SELECT TIMEDIFF(NOW(), UTC_TIMESTAMP);")
             self.sql_server_tz = timezone((await cursor.fetchone())[0])
 
@@ -69,10 +71,10 @@ class Woolinator(commands.Bot):
         # Populate the guild & user prefixes dicts
         for row in rows:
             entity_id: int = row[0]
-            is_guild: bool = row[1]
+            is_guild: int = row[1]  # tinyint(1) comes back as int 1/0
             prefix: str = row[2]
 
-            if is_guild is True:
+            if is_guild:
                 self.guild_prefixes[entity_id] = prefix
             else:
                 self.user_prefixes[entity_id] = prefix
@@ -128,7 +130,7 @@ class Woolinator(commands.Bot):
         if ctx.command is None:
             return
 
-        log.info(f'{ctx.author.name} ({f'in {ctx.guild.name}' if ctx.guild else 'in DM\'s'}) executing: ?{ctx.command.qualified_name}')
+        log.info(f'{ctx.author.name} ({f'in {ctx.guild.name}' if ctx.guild else 'in DM\'s'}) executing: {ctx.clean_prefix}{ctx.command.qualified_name}')
 
         bucket = self.spam_control.get_bucket(message)
         current = message.created_at.timestamp()
@@ -161,19 +163,19 @@ class Woolinator(commands.Bot):
 
         try:
             guild = await self.fetch_guild(guild_id)
-        except (discord.HTTPException, discord.NotFound):
+        except discord.HTTPException:
             return None
         else:
             return guild
 
-    async def get_or_fetch_channel(self, guild: discord.Guild, channel_id: int):
+    async def get_or_fetch_channel(self, guild: discord.Guild, channel_id: int) -> discord.abc.GuildChannel | None:
         channel = guild.get_channel(channel_id)
         if channel is not None:
             return channel
 
         try:
             channel = await guild.fetch_channel(channel_id)
-        except (discord.HTTPException, discord.NotFound):
+        except discord.HTTPException:
             return None
         else:
             return channel
@@ -185,7 +187,7 @@ class Woolinator(commands.Bot):
 
         try:
             member = await guild.fetch_member(member_id)
-        except (discord.HTTPException, discord.NotFound):
+        except discord.HTTPException:
             return None
         else:
             return member
@@ -197,7 +199,7 @@ class Woolinator(commands.Bot):
 
         try:
             user = await self.fetch_user(user_id)
-        except (discord.HTTPException, discord.NotFound):
+        except discord.HTTPException:
             return None
         else:
             return user
@@ -209,7 +211,7 @@ class Woolinator(commands.Bot):
 
         try:
             role = await guild.fetch_role(role_id)
-        except (discord.HTTPException, discord.NotFound):
+        except discord.HTTPException:
             return None
         else:
             return role

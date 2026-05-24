@@ -3,8 +3,8 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Oct 26, 2025 at 09:23 PM
--- Server version: 10.11.13-MariaDB-0ubuntu0.24.04.1
+-- Generation Time: May 24, 2026 at 01:56 AM
+-- Server version: 10.11.14-MariaDB-0ubuntu0.24.04.1
 -- PHP Version: 8.3.6
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
@@ -42,9 +42,20 @@ CREATE TABLE IF NOT EXISTS `channels` (
   `feature` varchar(64) NOT NULL,
   `guild_id` bigint(20) UNSIGNED NOT NULL,
   `channel_id` bigint(20) UNSIGNED NOT NULL,
-  `fails` smallint(5) UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `unique_feature_guild` (`feature`,`guild_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `guild_settings`
+--
+
+CREATE TABLE IF NOT EXISTS `guild_settings` (
+  `guild_id` bigint(20) UNSIGNED NOT NULL,
+  `mod_log_setup_done` tinyint(1) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`guild_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------

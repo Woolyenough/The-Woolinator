@@ -7,6 +7,7 @@ from discord import ui
 
 from bot import Woolinator
 from .utils.views import handle_view_edit
+from .utils.common import plur
 from .utils.context import Context
 
 log = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class CategorySelectMenu(ui.Select):
         self.bot: Woolinator = bot
 
         options = []
+        misc_option = None
         for cog_name, cog in self.bot.cogs.items():
             if cog_name == "Help": continue
             command_list = []
@@ -44,7 +46,19 @@ class CategorySelectMenu(ui.Select):
 
             description = getattr(cog, "description", "No description")
             emoji = getattr(cog, "emoji", None)
-            options.append(discord.SelectOption(label=cog.qualified_name, value=cog.qualified_name, description=description, emoji=emoji))
+            # Add command count to description
+            cmd_count = len(command_list)
+            description_with_count = f"{description} • {cmd_count} command{plur(cmd_count)}"
+            option = discord.SelectOption(label=cog.qualified_name, value=cog.qualified_name, description=description_with_count, emoji=emoji)
+
+            # Keep Miscellaneous aside so it's always the last category
+            if cog_name == "Miscellaneous":
+                misc_option = option
+                continue
+            options.append(option)
+
+        if misc_option is not None:
+            options.append(misc_option)
 
         options.insert(0, discord.SelectOption(label="Home", value="Home", emoji="\U0001f44b"))
         super().__init__(placeholder="Select a category...", min_values=1, max_values=1, options=options)
@@ -52,16 +66,21 @@ class CategorySelectMenu(ui.Select):
     async def callback(self, interaction: discord.Interaction):
         selected = self.values[0]
         if selected == "Home":
-            embed = get_home_embed(interaction.user)
+            embed = get_home_embed(self.bot, interaction.user)
         
         else:
             cog = self.bot.get_cog(selected)
-            embed = discord.Embed(title=selected, description=cog.description or '...', colour=discord.Colour(0xA8B9CD))
+            # Count non-hidden commands
+            visible_commands = [cmd for cmd in cog.walk_commands() if not cmd.hidden]
+            cmd_count = len(visible_commands)
+            cog_desc = f"*{cog.description or '...'}*\n\n**{cmd_count} command{plur(cmd_count)}:**"
+            embed = discord.Embed(title=selected, description=cog_desc, colour=0xFFF4E6)
 
-            for command in cog.walk_commands():
-                command.signature
-                signature = f"{command.qualified_name} {command.signature}"
+            for command in visible_commands:
+                signature = HelpCommand.format_command_signature(command, use_qualified=True)
                 embed.add_field(name=signature, value=command.description or '...', inline=False)
+
+            HelpCommand.add_help_footer(embed)
 
         await interaction.response.edit_message(embed=embed)
 
@@ -85,14 +104,11 @@ class AdditionalNotesButton(ui.View):
         await handle_view_edit(self.message, view=self)
 
 
-def get_home_embed(user: discord.Member|discord.User) -> discord.Embed:
-    """ Create and get a personalised main menu help embed. """
-
-    return discord.Embed(
-        title="Help",
-        description=f":wave: Hello, {user.mention}, and welcome to the home page of the help command. \n\n**Warning:** The help feature is currently still under development.\n\nSelect a category in the dropdown menu to get help with specific features.",
-        color=discord.Color.blurple()
-    )
+def get_home_embed(bot: Woolinator, user: discord.Member|discord.User) -> discord.Embed:
+    embed = discord.Embed(description="Welcome to the home page of the help command! :wave:\n\nSelect a category from the dropdown menu below to get help with specific features.", colour=0xffe3be)
+    embed.set_author(name=f"Hello, {user.name}!", icon_url=user.display_avatar.url)
+    embed.set_thumbnail(url=bot.user.display_avatar.url)
+    return embed
 
 
 class HelpCommand(commands.HelpCommand):
@@ -100,56 +116,82 @@ class HelpCommand(commands.HelpCommand):
     def __init__(self) -> None:
         super().__init__(
             command_attrs={
-                "cooldown": commands.CooldownMapping.from_cooldown(2, 6.0, commands.BucketType.member),
+                "cooldown": commands.CooldownMapping.from_cooldown(2, 8.0, commands.BucketType.member),
                 "help": "Shows help about a command or a category",
             }
         )
 
+    @staticmethod
+    def format_command_signature(command: commands.Command, use_qualified: bool = False) -> str:
+        """Format a command signature with <required> and (optional) arguments."""
+        signature_parts = [command.qualified_name if use_qualified else command.name]
+        for name, param in command.clean_params.items():
+            if param.required:
+                signature_parts.append(f"<{param.name}>")
+            else:
+                signature_parts.append(f"({param.name})")
+        return ' '.join(signature_parts)
+
+    @staticmethod
+    def add_help_footer(embed: discord.Embed) -> discord.Embed:
+        """Add the standard help footer to an embed."""
+        embed.set_footer(text="<arg> = required  |  (arg) = optional")
+        return embed
+
     async def send_bot_help(self, mapping: Mapping[commands.Cog|None, list[commands.Command]]):
         bot = self.context.bot
         view = CategorySelectMenuView(bot)
-        view.message = await self.get_destination().send(embed=get_home_embed(self.context.author), view=view)
+        embed = get_home_embed(bot, self.context.author)
+        view.message = await self.get_destination().send(embed=embed, view=view)
     
     async def send_command_help(self, command: commands.Command):
-        embed = discord.Embed(description=command.description, colour=discord.Colour(0xA8B9CD))
+        embed = discord.Embed(description=f"*{command.description}*" if command.description else None, colour=0xFFF4E6)
         app_cmd = self.context.bot.tree.get_command(command.name, type=discord.AppCommandType.chat_input)
 
         if app_cmd:
             arg_descs = '\n'.join([f"**`{p.name}`**: {p.description}" for p in app_cmd.parameters])
             if arg_descs:
-                embed.add_field(name="Parameter Descriptions", value=arg_descs)
+                embed.add_field(name="Arguments", value=arg_descs)
 
-        signature = [command.qualified_name, ]
-        for name, param in command.clean_params.items():
-            if param.required:
-                signature.append(f"<{param.name}>")
-            else:
-                signature.append(f"({param.name})")
+        # Optional example usages, set per-command via extras={"examples": [...]}
+        examples = command.extras.get("examples")
+        if examples:
+            example_text = '\n'.join(f"`{self.context.clean_prefix}{command.qualified_name} {ex}`" for ex in examples)
+            embed.add_field(name="Examples", value=example_text, inline=False)
 
-        embed.title = ' '.join(signature)
+        embed.title = self.format_command_signature(command, use_qualified=True)
 
         view = None
         if command.help:
             view = AdditionalNotesButton(discord.Embed(title="Additional Notes", description=command.help))
 
-        embed.set_footer(text="<arg> = required  |  (arg) = optional")
+        self.add_help_footer(embed)
         m = await self.context.send(embed=embed, view=view)
         if hasattr(view, "message"): view.message = m
 
     async def send_group_help(self, group: commands.Group):
-        embed = discord.Embed(title=group.qualified_name, description=group.description, color=discord.Color.blurple())
+        cmd_count = len(group.commands)
+        group_desc = f"*{group.description}*\n\n**{cmd_count} subcommand{plur(cmd_count)}:**" if group.description else f"**{cmd_count} subcommand{plur(cmd_count)}:**"
+        embed = discord.Embed(title=group.qualified_name, description=group_desc, color=0xFFF4E6)
 
         for command in group.commands:
-            embed.add_field(name=command.name, value=command.description, inline=False)
+            signature = self.format_command_signature(command)
+            embed.add_field(name=signature, value=command.description, inline=False)
 
+        self.add_help_footer(embed)
         await self.get_destination().send(embed=embed)
 
     async def send_cog_help(self, cog: commands.Cog):
-        embed = discord.Embed(title=cog.qualified_name, description=cog.description, color=discord.Color.blurple())
+        visible_commands = [cmd for cmd in cog.get_commands() if not cmd.hidden]
+        cmd_count = len(visible_commands)
+        cog_desc = f"*{cog.description}*\n\n**{cmd_count} command{plur(cmd_count)}:**" if cog.description else f"**{cmd_count} command{plur(cmd_count)}:**"
+        embed = discord.Embed(title=cog.qualified_name, description=cog_desc, color=0xFFF4E6)
 
-        for command in cog.get_commands():
-            embed.add_field(name=command.name, value=command.description, inline=False)
+        for command in visible_commands:
+            signature = self.format_command_signature(command)
+            embed.add_field(name=signature, value=command.description, inline=False)
 
+        self.add_help_footer(embed)
         await self.get_destination().send(embed=embed)
 
     async def on_help_command_error(self, ctx: Context, error: commands.CommandError):
@@ -164,7 +206,7 @@ class HelpCommand(commands.HelpCommand):
 class Help(commands.Cog, command_attrs=dict(hidden=True)):
 
     def __init__(self, bot: Woolinator) -> None:
-        self.bot: Woolinator = bot
+        self.bot = bot
         self._original_help_command: commands.HelpCommand|None = bot.help_command
         bot.help_command = HelpCommand()
         bot.help_command.cog = self  # type: ignore

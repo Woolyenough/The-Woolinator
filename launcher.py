@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import signal
-import sys
 import contextlib
 from logging.handlers import RotatingFileHandler
 
@@ -22,7 +21,7 @@ class RemoveNoise(logging.Filter):
         super().__init__(name='discord.state')
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.levelname == 'WARNING' and 'referencing an unknown' in record.msg:
+        if record.levelname == 'WARNING' and 'referencing an unknown' in record.getMessage():
             return False
         return True
 
@@ -43,7 +42,7 @@ def setup_logging():
             filename='woolinator.log',
             encoding='utf-8',
             mode='w',
-            maxBytes=64*1024*1024, # 64 MiB
+            maxBytes=32*1024*1024, # 32 MiB
             backupCount=5
         )
 
@@ -60,32 +59,34 @@ def setup_logging():
             log.removeHandler(hdlr)
 
 async def run_bot():
-    log = logging.getLogger()
     try:
         pool = await asyncmy.create_pool(
-                user=os.getenv('MARIADB_USERNAME'),
-                password=os.getenv('MARIADB_PASSWORD'),
-                host=os.getenv('MARIADB_HOST'),
-                db='Woolinator',
-                autocommit=True,
+            user=os.getenv('MARIADB_USERNAME'),
+            password=os.getenv('MARIADB_PASSWORD'),
+            host=os.getenv('MARIADB_HOST'),
+            db='Woolinator',
+            autocommit=True,
         )
-
-    except Exception as e:
-        log.exception('Failed to connect to the database', exc_info=e)
+    except Exception:
+        log.exception('Failed to connect to the database')
         return
 
     async with Woolinator() as bot:
         bot.pool = pool
 
-        # Catch CTRL+C (SIGINT) to exit gracefully
-        def signal_handler(signal, frame):
-            log.info('Received exit signal %s:', signal)
-            asyncio.create_task(bot.close())
-            sys.exit(0)
+        # Cancel this task on SIGINT/SIGTERM so the `async with` cleanly runs bot.close() once
+        main_task = asyncio.current_task()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, main_task.cancel)
+            except NotImplementedError:
+                pass  # add_signal_handler is unavailable on Windows
 
-        signal.signal(signal.SIGINT, signal_handler)
-
-        await bot.start()
+        try:
+            await bot.start()
+        except asyncio.CancelledError:
+            log.info('Received exit signal, shutting down')
 
 if __name__ == '__main__':
     load_dotenv()
