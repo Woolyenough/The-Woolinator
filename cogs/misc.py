@@ -1,7 +1,8 @@
 import logging
+import asyncio
 import base64
 import os
-import subprocess
+import re
 import unicodedata
 import psutil
 import platform
@@ -55,9 +56,9 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
 
         self.process = psutil.Process()
 
-        # Available list obtained from `neofetch --help`, and then '--ascii_distro' flag info
+        # Built-in logo names from `fastfetch --list-logos autocompletion`, stored one per line
         with open("resources/os-logos.txt", 'r') as f:
-            self.available_os_ascii = f.read().strip('"').split(', ')
+            self.available_os_ascii = f.read().splitlines()
 
         self.ctx_count = app_commands.ContextMenu(name="Word & Character Count", callback=self.ctx_menu_count)
         self.bot.tree.add_command(self.ctx_count)
@@ -327,8 +328,7 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         # Statistics
         text_channels = len(guild.text_channels)
         voice_channels = len(guild.voice_channels)
-        categories = len(guild.categories)
-        
+
         # Member statistics
         total_members = guild.member_count
         bots = sum(1 for m in guild.members if m.bot)
@@ -342,7 +342,7 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         
         stats_lines = [
             f"**Members:** {humans:,} (+{bots:,} bots)",
-            f"**Online:** {Emojis.Presence.online} {online:,}, {Emojis.Presence.idle} {idle:,}, {Emojis.Presence.dnd} {dnd:,}, {Emojis.Presence.offline} {offline:,}",
+            f"**Online:** {Emojis.Presence.online} {online:,} / {Emojis.Presence.idle} {idle:,} / {Emojis.Presence.dnd} {dnd:,} / {Emojis.Presence.offline} {offline:,}",
             f"**Channels:** {text_channels} text, {voice_channels} voice ({text_channels + voice_channels})",
             f"**Roles:** {len(guild.roles) - 1}",  # Exclude @everyone
             f"**Emojis:** {len(guild.emojis)} / {guild.emoji_limit}",
@@ -559,39 +559,47 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         )
 
     async def os_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-        return [app_commands.Choice(name=o.replace('"', ''), value=o.replace('"', '')) for o in self.available_os_ascii if o.lower().startswith(current.lower())][:25]
+        return [app_commands.Choice(name=o, value=o) for o in self.available_os_ascii if current.lower() in o.lower()][:25]
 
     @commands.hybrid_command(name="distro", description="Colourful render of an OS logo in an ANSI codeblock")
     @app_commands.describe(os="The OS' icon you want to use")
     @app_commands.autocomplete(os=os_autocomplete)
-    async def distro(self, ctx: Context, os: commands.Range[str, 1, 50]):
+    async def distro(self, ctx: Context, *, os: commands.Range[str, 1, 50]):
 
-        found = False
-        for os_name in self.available_os_ascii:
-            if os_name.lower().replace('"', '') == os.lower():
-                os = os_name
-                found = True
+        # Resolve the input to a known logo (case-insensitive), keeping fastfetch's canonical casing
+        logo = next((o for o in self.available_os_ascii if o.lower() == os.lower()), None)
+        if logo is None:
+            await ctx.reply(f"{tick(False)} That isn't a recognised logo (use the autocomplete with the slash command)", ephemeral=True)
+            return
 
-        os = os if found else "Invalid distro"
+        # Render just the logo (`-s none`), forcing colours through the pipe (`--pipe false`)
+        process = await asyncio.create_subprocess_exec(
+            "fastfetch", "--logo", logo, "-s", "none", "--pipe", "false",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await process.communicate()
 
-        def remove_cursor_moving_ansi(text):
-            # Discord ANSI code blocks don't look forward slash, for some reason
-            text = text.replace('/', '\\')
-
-            # I'm assuming these are escape sequences to move the cursor, I had no idea how else to get rid of these...
-            return text.replace("[16A[9999999D", '').replace("[27A[9999999D", '').replace("[23A[9999999D", '').replace("[15A[9999999D", '').replace("[21A[9999999D", '').replace("[17A[9999999D", '').replace("[13A[9999999D", '').replace("[12A[9999999D", '').replace("[?25l[?7l", '').replace("[18A[9999999D", '').replace("[20A[9999999D", '').replace("[?25h[?7h", '').replace("[19A[9999999D", '').replace("[28A[9999999D", '')
-
-        stdout = subprocess.run(["neofetch", "--ascii_distro", os, "-L"], capture_output=True, text=True).stdout
-        stdout = remove_cursor_moving_ansi(stdout)
-        stdout = stdout.replace('`', '´').strip()  # Replace backticks to prevent code block escaping
+        # Strip fastfetch's cursor-repositioning escapes, keeping colour/SGR (`…m`) codes
+        art = re.sub(r'\x1b\[[\d;?]*[A-Za-ln-z]', '', stdout.decode())
+        # fastfetch resets colour with an empty-param `\x1b[m`, which Discord renders literally; normalise it to the explicit `\x1b[0m` it understands, then drop the redundant trailing reset(s)
+        art = re.sub(r'(?:\x1b\[0m)+$', '', art.replace('\x1b[m', '\x1b[0m').strip())
+        # Neutralise backticks so they can't break out of the code block
+        art = art.replace('`', '´').strip()
 
         warning = ''
         if isinstance(ctx.author, discord.Member) and ctx.author.is_on_mobile():
             warning = ":warning: **You appear to be on Discord mobile**\n> - Colours are not displayed\n> - The logo might be too wide for your screen\n"
 
-        embed = discord.Embed(title=os, description=f"{warning}```ansi\n{stdout}```", color=discord.Colour.greyple())
-        embed.set_footer(text=f"Requested by {ctx.author.name}", icon_url=ctx.author.display_avatar.url)
-        await ctx.reply(embed=embed)
+        heading = f"## {logo}\n"
+        block = f"```ansi\n{art}```"
+
+        # Keep the code block in the message content so it renders full-width; only the rare logo that overflows the 2000-char content limit falls back into the embed
+        if len(heading) + len(warning) + len(block) <= 2000:
+            await ctx.reply(content=f"{heading}{warning}{block}")
+        else:
+            embed = discord.Embed(title=logo, description=f"{warning}{block}", color=discord.Colour.greyple())
+            embed.set_footer(text=f"Requested by {ctx.author.name}", icon_url=ctx.author.display_avatar.url)
+            await ctx.reply(embed=embed)
 
 
 async def setup(bot: Woolinator) -> None:

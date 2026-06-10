@@ -214,6 +214,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         await ctx.send(embed=embed)
         
         # Send to mod log channel
+        embed.set_footer(text=f"User ID: {member.id}")
         await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="mute", aliases=["timeout", "tm"], description="Time out a member", extras={
@@ -295,6 +296,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             await ctx.send(embed=embed)
         
         # Send to mod log channel
+        embed.set_footer(text=f"User ID: {member.id}")
         await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="unmute", description="Remove a member's timeout")
@@ -328,6 +330,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         await ctx.send(embed=embed)
         
         # Send to mod log channel
+        embed.set_footer(text=f"User ID: {member.id}")
         await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="ban", description="Ban a member", extras={
@@ -384,6 +387,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
             await ctx.send(embed=embed)
         
         # Send to mod log channel
+        embed.set_footer(text=f"User ID: {member.id}")
         await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="unban", description="Unban a member")
@@ -413,6 +417,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         await ctx.send(embed=embed)
         
         # Send to mod log channel
+        embed.set_footer(text=f"User ID: {member.id}")
         await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="checkban", description="Get info on a user's ban")

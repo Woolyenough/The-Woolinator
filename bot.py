@@ -48,14 +48,14 @@ class Woolinator(commands.Bot):
             with open('database.sql', "r", encoding="utf-8") as f:
                 sql = f.read()
 
-            # Strip `--` comment lines and split on `;`
+            # Strip `--` comment lines
             lines = []
             for line in sql.splitlines():
                 if not line.strip().startswith('--'):
                     lines.append(line)
             cleaned_sql = '\n'.join(lines)
 
-            # Split into statements
+            # Split `;` into statements
             statements = [s.strip() for s in cleaned_sql.split(';') if s.strip()]
             for statement in statements:
                 await cursor.execute(statement)
@@ -71,7 +71,7 @@ class Woolinator(commands.Bot):
         # Populate the guild & user prefixes dicts
         for row in rows:
             entity_id: int = row[0]
-            is_guild: int = row[1]  # tinyint(1) comes back as int 1/0
+            is_guild: int = row[1]  # tinyint(1) comes back as int rather than bool
             prefix: str = row[2]
 
             if is_guild:

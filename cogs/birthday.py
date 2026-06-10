@@ -88,7 +88,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
 
         channel_id = await self.get_bday_channel(user.guild)
         if not channel_id:
-            if user.guild_permissions.manage_guild: return f"\n-# {Emojis.warn} No birthday channel has been set up. Until then, no birthdays will be announced. Set one now with </birthday-channel set:1381472026660835399>."
+            if user.guild_permissions.manage_guild: return f"\n-# {Emojis.warn} No birthday channel has been set up. Until then, no birthdays will be announced. Set one now with </birthday set:1381472026660835398>."
             else: return f"\n-# {Emojis.warn} No birthday channel has been set up. Until then, no birthdays will be announced."
         return ''
 

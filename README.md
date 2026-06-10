@@ -14,6 +14,7 @@ To do this, you will need:
 - A MariaDB/MySQL server
 - A Discord bot application (https://discord.com/developers/applications)
 - Python 3.12.x
+- [fastfetch](https://github.com/fastfetch-cli/fastfetch) installed and added to PATH
 
 To configure, copy `.env.TEMPLATE` into `.env`, and modify the values inside it.
 

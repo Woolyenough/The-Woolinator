@@ -3,34 +3,51 @@ import logging
 import discord
 from discord import ui
 from discord.ext import commands
+from discord.utils import escape_markdown as rmd
 
 from .utils import checks
 from .utils.common import trim_str
 from .utils.context import Context
+from .utils.emojis import Emojis
 from .utils.views import handle_view_edit
+
 from bot import Woolinator
 
 
 log = logging.getLogger(__name__)
 
 
-# Registry of configurable log types. Add an entry here (plus a call site/listener)
-# to make a new log type appear automatically in the `/logging` UI.
+# Registry of configurable log types
 LOG_FEATURES: dict[str, dict[str, str]] = {
-    "mod-logs": {
-        "label": "Moderation Logs",
+    "log-mod-actions": {
+        "label": "Mod Actions",
         "desc": "Kicks, bans, mutes, purges, etc.",
-        "emoji": "🛡️",
+        "emoji": Emojis.Flags.discord_certified_moderator,
     },
     "log-messages": {
-        "label": "Message Logs",
+        "label": "Messages",
         "desc": "Edited & deleted messages",
-        "emoji": "✏️",
+        "emoji": Emojis.text_bubble,
     },
     "log-voice": {
-        "label": "Voice Logs",
+        "label": "Voice",
         "desc": "Members joining, leaving or moving voice channels",
         "emoji": "🔊",
+    },
+    "log-joins": {
+        "label": "Joins & Leaves",
+        "desc": "Members joining & leaving the server",
+        "emoji": "🚪",
+    },
+    "log-nicknames": {
+        "label": "Nicknames",
+        "desc": "Member nickname changes",
+        "emoji": "🏷️",
+    },
+    "log-roles": {
+        "label": "Roles",
+        "desc": "Roles added to or removed from members",
+        "emoji": "🎭",
     },
 }
 
@@ -304,11 +321,11 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
             try:
                 channel = await guild.fetch_channel(channel_id)
             except discord.NotFound:
-                # Channel was deleted (e.g. while the bot was offline) — drop the stale config.
+                # Channel was deleted (e.g. while the bot was offline) - drop the stale config
                 await self.remove_channel_by_id(guild.id, channel_id)
                 return False
             except discord.HTTPException:
-                return False  # transient failure — leave the config intact
+                return False  # transient failure - leave the config intact
 
         return await self._send_via_webhook(channel, embed, view)
 
@@ -316,13 +333,14 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
 
     async def handle_mod_log(self, guild: discord.Guild, embed: discord.Embed) -> bool:
         """ Send a mod-log embed, auto-creating the channel on first use if needed. """
-        channel_id = await self.get_log_channel(guild, "mod-logs")
+        embed.timestamp=discord.utils.utcnow()
+        channel_id = await self.get_log_channel(guild, "log-mod-actions")
         if channel_id is None:
             channel = await self.maybe_auto_create_mod_log(guild)
             if channel is None:
                 return False
             return await self._send_via_webhook(channel, embed)
-        return await self.send_log(guild, "mod-logs", embed)
+        return await self.send_log(guild, "log-mod-actions", embed)
 
     async def maybe_auto_create_mod_log(self, guild: discord.Guild) -> discord.TextChannel | None:
         """ Create a mods-only mod-log channel once per guild, with an info message. """
@@ -345,7 +363,7 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
 
         try:
             channel = await guild.create_text_channel(
-                "mod-logs",
+                "log-mod-actions",
                 overwrites=overwrites,
                 reason="Auto-created mod log channel (no logging configured)",
             )
@@ -353,7 +371,7 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
             log.warning("Failed to auto-create mod-log channel in guild %s", guild.id)
             return None
 
-        await self.set_channel(guild.id, "mod-logs", channel.id)
+        await self.set_channel(guild.id, "log-mod-actions", channel.id)
 
         info = discord.Embed(
             title="Mod log channel created",
@@ -428,6 +446,49 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
         embed.set_author(name=f"@{member.name} {action} a voice channel", icon_url=member.display_avatar.url)
         embed.set_footer(text=f"Voice {action.capitalize()} • User ID: {member.id}")
         await self.send_log(member.guild, "log-voice", embed)
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        embed = discord.Embed(description=member.mention, colour=0x83f590, timestamp=discord.utils.utcnow())
+        embed.set_author(name=f"@{member.name} joined", icon_url=member.display_avatar.url)
+        embed.add_field(name="Account Created", value=discord.utils.format_dt(member.created_at, "R"), inline=True)
+        embed.add_field(name="Member Count", value=f"{member.guild.member_count:,}", inline=True)
+        embed.set_footer(text=f"Member Joined • User ID: {member.id}")
+        await self.send_log(member.guild, "log-joins", embed)
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        embed = discord.Embed(description=member.mention, colour=0xf93838, timestamp=discord.utils.utcnow())
+        embed.set_author(name=f"@{member.name} left", icon_url=member.display_avatar.url)
+        if member.joined_at:
+            embed.add_field(name="Joined", value=discord.utils.format_dt(member.joined_at, "R"), inline=True)
+        roles = [r.mention for r in reversed(member.roles) if not r.is_default()]
+        if roles:
+            embed.add_field(name=f"Roles [{len(roles)}]", value=trim_str(', '.join(roles), 1024), inline=False)
+        embed.set_footer(text=f"Member Left • User ID: {member.id}")
+        await self.send_log(member.guild, "log-joins", embed)
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        if before.nick != after.nick:
+            embed = discord.Embed(colour=0xff8d42, timestamp=discord.utils.utcnow())
+            embed.set_author(name=f"@{after.name} changed nickname", icon_url=after.display_avatar.url)
+            embed.add_field(name="Before", value=trim_str(rmd(before.nick), 1024) if before.nick else "*None*", inline=True)
+            embed.add_field(name="After", value=trim_str(rmd(after.nick), 1024) if after.nick else "*None*", inline=True)
+            embed.set_footer(text=f"Nickname Changed • User ID: {after.id}")
+            await self.send_log(after.guild, "log-nicknames", embed)
+
+        added = [r for r in after.roles if r not in before.roles]
+        removed = [r for r in before.roles if r not in after.roles]
+        if added or removed:
+            embed = discord.Embed(colour=ACCENT, timestamp=discord.utils.utcnow())
+            embed.set_author(name=f"@{after.name}'s roles updated", icon_url=after.display_avatar.url)
+            if added:
+                embed.add_field(name="Added", value=trim_str(', '.join(r.mention for r in added), 1024), inline=False)
+            if removed:
+                embed.add_field(name="Removed", value=trim_str(', '.join(r.mention for r in removed), 1024), inline=False)
+            embed.set_footer(text=f"Roles Updated • User ID: {after.id}")
+            await self.send_log(after.guild, "log-roles", embed)
 
     # --- Command ---
 

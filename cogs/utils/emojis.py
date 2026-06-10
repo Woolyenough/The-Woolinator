@@ -34,6 +34,7 @@ class Emojis:
     warn = "<:warn:1381478501562974261>"
     info = "<:info:1381486855610171422>"
     server_boost = "<:server_boost:1508142145960415284>"
+    text_bubble = "<:text_bubble:1509586846672486471>"
     Tick = Tick()
     Presence = Presence()
     Flags = Flags()
