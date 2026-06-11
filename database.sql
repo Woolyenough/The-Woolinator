@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: May 24, 2026 at 01:56 AM
+-- Generation Time: Jun 10, 2026 at 05:25 PM
 -- Server version: 10.11.14-MariaDB-0ubuntu0.24.04.1
 -- PHP Version: 8.3.6
 
@@ -26,7 +26,7 @@ USE `Woolinator`;
 CREATE TABLE IF NOT EXISTS `birthdays` (
   `user_id` bigint(20) UNSIGNED NOT NULL,
   `guild_id` bigint(20) UNSIGNED NOT NULL,
-  `date` varchar(10) NOT NULL,
+  `date` date NOT NULL,
   `last_announced` smallint(5) UNSIGNED DEFAULT NULL,
   UNIQUE KEY `unique_user_guild` (`user_id`,`guild_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS `prefixes` (
   `is_guild` tinyint(1) NOT NULL,
   `entity_id` bigint(20) UNSIGNED NOT NULL,
   `prefix` varchar(4) DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_entity` (`entity_id`,`is_guild`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -86,7 +87,9 @@ CREATE TABLE IF NOT EXISTS `reminders` (
   `content` varchar(2000) NOT NULL,
   `is_dm` tinyint(1) NOT NULL DEFAULT 0,
   `link` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_time_expire` (`time_expire`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -102,6 +105,8 @@ CREATE TABLE IF NOT EXISTS `tags` (
   `created` datetime NOT NULL,
   `name` varchar(32) NOT NULL,
   `content` varchar(2000) NOT NULL,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_guild_name` (`guild_id`,`name`),
+  KEY `idx_user_guild` (`user_id`,`guild_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 COMMIT;

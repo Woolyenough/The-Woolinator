@@ -61,7 +61,8 @@ class Voice(commands.Cog, name="Voice", description="Voice call-related features
         if before.channel and not after.channel:
 
             vc = member.guild.voice_client
-            if vc:
+            # Only react when the bot's own channel was the one left
+            if vc and vc.channel == before.channel:
                 cur_vc_members = [m for m in before.channel.members if not m.bot]
                 if len(cur_vc_members) == 0:
                     await vc.disconnect(force=True)
@@ -131,7 +132,7 @@ class Voice(commands.Cog, name="Voice", description="Voice call-related features
             await ctx.reply("I'm not in a voice channel", ephemeral=True)
             return
 
-        if vc.channel != ctx.author.voice.channel:
+        if ctx.author.voice is None or vc.channel != ctx.author.voice.channel:
             await ctx.reply("You're not in the same voice channel as me", ephemeral=True)
             return
 
@@ -147,15 +148,14 @@ class Voice(commands.Cog, name="Voice", description="Voice call-related features
             return
         await ctx.reply("Hello there")
 
-    def get_sound_files(self, with_extension: bool = True) -> list[str]:
-        if with_extension:
-            return ['.'.join(file.split('.')[:-1]) for file in os.listdir("resources/sounds")]
-        return [file for file in os.listdir("resources/sounds")]
+    def get_sound_files(self) -> list[str]:
+        """ Sound names (without extension), as accepted by the `sound` command. """
+        return sorted(os.path.splitext(file)[0] for file in os.listdir("resources/sounds"))
 
     @commands.hybrid_command(name="sounds", aliases=["soundboard"], description="View all the sounds available to play")
     async def sounds(self, ctx: Context):
-        sound_files = "`, `".join(self.get_sound_files(False))
-        await ctx.reply(f"Available sounds:`{sound_files}`\n\nRun the command </sound:1308500118554546220> to play a sound", ephemeral=True)
+        sound_files = "`, `".join(self.get_sound_files())
+        await ctx.reply(f"Available sounds:`{sound_files}`\n\nRun the command {self.bot.cmd_mention('sound')} to play a sound", ephemeral=True)
 
     @commands.hybrid_command(name="sound", aliases=["s"], description="Play a specified sound")
     @app_commands.describe(sound="The sound you want to play")
@@ -166,11 +166,13 @@ class Voice(commands.Cog, name="Voice", description="Voice call-related features
 
         audio_extensions = [".mp3", ".ogg", ".wav", ".flac", ".m4a"]
 
+        # Match against the directory listing rather than building a path from
+        # user input, so names like '../...' can't escape the sounds folder
         sound_path = None
-        for ext in audio_extensions:
-            potential_path = f"resources/sounds/{sound}{ext}"
-            if os.path.isfile(potential_path):
-                sound_path = potential_path
+        for file in os.listdir("resources/sounds"):
+            name, ext = os.path.splitext(file)
+            if name == sound and ext in audio_extensions:
+                sound_path = os.path.join("resources/sounds", file)
                 break
 
         if not sound_path:

@@ -198,8 +198,6 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         await ctx.typing()
 
-        await ctx.guild.kick(member, reason=f"Mod: {ctx.author.name} | Reason: {reason}")
-
         info = [
             f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})",
             f"**Reason:** {reason}"
@@ -208,6 +206,8 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         if dm:
             sent = await self.send_dm_victim(ctx=ctx, action="kicked", victim=member, colour=0xf0eb56, info=info)
             info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
+
+        await ctx.guild.kick(member, reason=f"Mod: {ctx.author.name} | Reason: {reason}")
 
         embed = discord.Embed(description='\n'.join(info), colour=0xf0eb56)
         embed.set_author(name=f"Kicked @{member.name}", icon_url=member.display_avatar.url)
@@ -367,8 +367,6 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
         await ctx.typing()
 
-        await ctx.guild.ban(member, reason=f"Mod: {ctx.author.name} | Reason: {reason}", delete_message_days=0)
-
         info = [
             f"**Moderator:** `@{ctx.author.name}` ({ctx.author.mention})",
             f"**Reason:** {reason}",
@@ -377,6 +375,8 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         if dm:
             sent = await self.send_dm_victim(ctx=ctx, action="banned", victim=member, colour=0xd60f78, info=info)
             info.insert(1, f"**DM:** {tick(True) if sent else tick(False)}")
+
+        await ctx.guild.ban(member, reason=f"Mod: {ctx.author.name} | Reason: {reason}", delete_message_days=0)
 
         embed = discord.Embed(description='\n'.join(info), colour=0xd60f78)
         embed.set_author(name=f"Banned @{member.name}", icon_url=member.display_avatar.url)
@@ -417,7 +417,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         await ctx.send(embed=embed)
         
         # Send to mod log channel
-        embed.set_footer(text=f"User ID: {member.id}")
+        embed.set_footer(text=f"User ID: {user.id}")
         await self.send_mod_log(ctx.guild, embed)
 
     @commands.hybrid_command(name="checkban", description="Get info on a user's ban")
@@ -430,7 +430,8 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
         except discord.NotFound:
             return await ctx.reply(f"User `{user.name}` does not seem to be banned...", ephemeral=True)
 
-        embed=discord.Embed(description=f"**Reason:**\n>>> {escape_markdown(escape_mentions(ban_entry.reason))}", colour=0x9a61ff)
+        reason = escape_markdown(escape_mentions(ban_entry.reason)) if ban_entry.reason else "*No reason provided*"
+        embed=discord.Embed(description=f"**Reason:**\n>>> {reason}", colour=0x9a61ff)
         embed.set_author(name=f"@{user.name}'s ban", icon_url=user.display_avatar.url)
         await ctx.reply(embed=embed)
 

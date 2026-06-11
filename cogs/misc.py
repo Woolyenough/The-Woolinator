@@ -71,6 +71,7 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
 
     async def cog_unload(self):
         self.rotate_status.cancel()
+        self.bot.tree.remove_command(self.ctx_count.name, type=self.ctx_count.type)
 
     @property
     def emoji(self) -> discord.PartialEmoji:
@@ -171,7 +172,7 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
     @commands.hybrid_command(name="esnipe", aliases=["editsnipe"], description="Check the last edited message in the current channel")
     @commands.guild_only()
     async def esnipe(self, ctx: Context):
-        before, after = self.edited_messages.get(ctx.channel.id, None)
+        before, after = self.edited_messages.get(ctx.channel.id, (None, None))
 
         if after is None:
             embed = discord.Embed(description="*There is nothing to edit snipe!*", colour=0xe6c4f5)
@@ -508,10 +509,11 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
                 return
 
             async with self.bot.get_cursor() as cursor:
-                res = await cursor.execute("UPDATE prefixes SET prefix = %s WHERE is_guild = FALSE AND entity_id = %s", (new_prefix, ctx.author.id,))
-
-                if res == 0:
-                    await cursor.execute("INSERT INTO prefixes (entity_id,is_guild,prefix) VALUES (%s, %s, %s)", (ctx.author.id, False, new_prefix,))
+                await cursor.execute('''
+                        INSERT INTO prefixes (entity_id, is_guild, prefix)
+                        VALUES (%s, %s, %s)
+                        ON DUPLICATE KEY UPDATE prefix = VALUES(prefix)
+                    ''', (ctx.author.id, False, new_prefix))
 
             self.bot.user_prefixes[ctx.author.id] = new_prefix
 
@@ -540,10 +542,11 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
             return
 
         async with self.bot.get_cursor() as cursor:
-            res = await cursor.execute("UPDATE prefixes SET prefix = %s WHERE is_guild = TRUE AND entity_id = %s", (new_prefix, ctx.guild.id,))
-
-            if res == 0:
-                await cursor.execute("INSERT INTO prefixes (entity_id, is_guild, prefix) VALUES (%s, %s, %s)", (ctx.guild.id, True, new_prefix,))
+            await cursor.execute('''
+                    INSERT INTO prefixes (entity_id, is_guild, prefix)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE prefix = VALUES(prefix)
+                ''', (ctx.guild.id, True, new_prefix))
 
         self.bot.guild_prefixes[ctx.guild.id] = new_prefix
 

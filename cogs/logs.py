@@ -349,10 +349,8 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
 
         me = guild.me
         if me is None or not me.guild_permissions.manage_channels:
-            return None  # don't flag as done; retry once perms are granted
-
-        await self.set_mod_log_setup_done(guild.id, True)
-
+            return None
+        
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             me: discord.PermissionOverwrite(view_channel=True, send_messages=True, embed_links=True, manage_webhooks=True),
@@ -370,7 +368,8 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
         except discord.HTTPException:
             log.warning("Failed to auto-create mod-log channel in guild %s", guild.id)
             return None
-
+        
+        await self.set_mod_log_setup_done(guild.id, True)
         await self.set_channel(guild.id, "log-mod-actions", channel.id)
 
         info = discord.Embed(
@@ -378,7 +377,7 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
             description=(
                 "Channel was created because no mod-log channel has been set. "
                 "To disable mod logging, either delete this channel and I won't bother you again "
-                "or configure logging channels with the </logging:1507925598805164112> command."
+                f"or configure logging channels with the {self.bot.cmd_mention('logging')} command."
             ),
             colour=ACCENT,
         )

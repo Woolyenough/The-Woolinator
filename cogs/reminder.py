@@ -127,80 +127,79 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
 
     @tasks.loop(minutes=10)
     async def sync_asyncio_timers(self):
-        for task in self.asyncio_timers.values():
-            task.cancel()
-        self.asyncio_timers.clear()
-
+        # Stored datetimes are UTC wall time, so compare against plain UTC
         async with self.bot.get_cursor() as cursor:
             await cursor.execute('''
                     SELECT id, user_id, time_created, time_expire, content, is_dm, link
                     FROM reminders
                     WHERE time_expire < %s
-                ''', (discord.utils.utcnow().astimezone(self.bot.sql_server_tz) + timedelta(minutes=self.update_interval),))
+                ''', (discord.utils.utcnow() + timedelta(minutes=self.update_interval),))
             reminders = await cursor.fetchall()
 
         for reminder in reminders:
             id: int = reminder[0]
-            task = asyncio.create_task(self.handle_reminder_expiration(reminder))
-            self.asyncio_timers[id] = task
+
+            # Don't touch/cancel tasks that are still sleeping or mid-delivery
+            existing = self.asyncio_timers.get(id)
+            if existing is not None and not existing.done():
+                continue
+
+            self.asyncio_timers[id] = asyncio.create_task(self.handle_reminder_expiration(reminder))
 
     # --- Helpers ---
 
     async def handle_reminder_expiration(self, reminder: tuple):
         time_expire: datetime = reminder[3].replace(tzinfo=timezone.utc)
-        await asyncio.sleep((time_expire - discord.utils.utcnow()).total_seconds())
-
-        async with self.bot.get_cursor() as cursor:
-            await cursor.execute("DELETE FROM reminders WHERE id = %s", (reminder[0],))
+        await asyncio.sleep(max((time_expire - discord.utils.utcnow()).total_seconds(), 0))
 
         id: int = reminder[0]
         user_id: str = reminder[1]
         time_created: datetime = reminder[2].replace(tzinfo=timezone.utc)
-        time_expire: datetime = reminder[3].replace(tzinfo=timezone.utc)
         content: str = reminder[4]
         is_dm: int = reminder[5]  # tinyint(1)
         link: str = reminder[6]
 
-        user = await self.bot.get_or_fetch_user(reminder[1])
+        user = await self.bot.get_or_fetch_user(user_id)
 
         if user is None:
             log.warning(
                 f"User {user_id} was not found to remind them for a reminder set on {time_created.strftime('%Y/%m/%d %H:%M:%S')}")
-            return
+        else:
+            message = f"{user.mention}, your reminder that you set on <t:{round(time_created.timestamp())}:f> has expired <t:{round(time_expire.timestamp())}:R>!\n\nHere's what you wanted to be reminded of:\n>>> {content}"
+            view = ui.View()
+            view.add_item(ui.Button(style=discord.ButtonStyle.link, label="Jump to when the reminder was made", url=link))
 
-        message = f"{user.mention}, your reminder that you set on <t:{round(time_created.timestamp())}:f> has expired <t:{round(time_expire.timestamp())}:R>!\n\nHere's what you wanted to be reminded of:\n>>> {content}"
-        view = ui.View()
-        view.add_item(ui.Button(style=discord.ButtonStyle.link, label="Jump to when the reminder was made", url=link))
+            failed_to_send = False
+            if not is_dm:
+                msg_details = link.split('/')
+                guild = await self.bot.get_or_fetch_guild(int(msg_details[-3]))
 
-        failed_to_send = False
-        if not is_dm:
-            msg_details = link.split('/')
-            guild = await self.bot.get_or_fetch_guild(int(msg_details[-3]))
+                if guild is not None:
 
-            if guild is not None:
+                    member = await self.bot.get_or_fetch_member(guild, int(user_id))
 
-                member = await self.bot.get_or_fetch_member(guild, int(user_id))
-
-                if member is None:
-                    is_dm = True  # left guild
+                    if member is None:
+                        is_dm = True  # left guild
+                    else:
+                        channel = await self.bot.get_or_fetch_channel(guild, int(msg_details[-2]))
+                        try:
+                            await channel.send(message, view=view)
+                        except (discord.Forbidden, discord.HTTPException):
+                            failed_to_send = True
                 else:
-                    channel = await self.bot.get_or_fetch_channel(guild, int(msg_details[-2]))
-                    try:
-                        await channel.send(message, view=view)
-                    except (discord.Forbidden, discord.HTTPException):
-                        failed_to_send = True
-            else:
-                is_dm = True  # guild no longer exists
-        if is_dm or failed_to_send:
-            try:
-                await user.send(message, view=view)
-            except (discord.Forbidden, discord.HTTPException):
-                pass
+                    is_dm = True  # guild no longer exists
+            if is_dm or failed_to_send:
+                try:
+                    await user.send(message, view=view)
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
 
-        # This should be last because cancelling the task while running is not good
-        task = self.asyncio_timers.get(id, None)
-        if task:
-            del self.asyncio_timers[id]
+        # Delete only after delivery was attempted, so a restart or cancellation
+        # mid-send doesn't silently lose the reminder
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("DELETE FROM reminders WHERE id = %s", (id,))
+
+        self.asyncio_timers.pop(id, None)
 
     # --- Commands ---
 
@@ -244,7 +243,7 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
         if when > now + relativedelta(years=5, seconds=1):
             if when > now + relativedelta(years=20):
                 return await ctx.reply("now that's just WAYYY too far into the future...", ephemeral=True)
-            return await ctx.reply("that's too far into the future... please try less than 4 years!", ephemeral=True)
+            return await ctx.reply("that's too far into the future... please try less than 5 years!", ephemeral=True)
 
         is_dm_channel = isinstance(ctx.channel, discord.DMChannel)
 

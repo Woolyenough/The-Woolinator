@@ -180,7 +180,8 @@ class Wooly(commands.Cog, command_attrs=dict(hidden=True)):
     @commands.command(name="sync", description="Sync the 'App Command Tree' with Discord")
     async def sync(self, ctx: Context) -> None:
         synced = await self.bot.tree.sync()
-        await ctx.reply(f"Synced {len(synced)} slash command in {len(self.bot.guilds)} guilds.")
+        self.bot.app_command_ids = {cmd.name: cmd.id for cmd in synced}
+        await ctx.reply(f"Synced {len(synced)} slash command{'' if len(synced) == 1 else 's'}.")
 
     @commands.command(name="sql", description="Execute SQL in the bot database")
     async def sql(self, ctx: Context, *, statement: str):

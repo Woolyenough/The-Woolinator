@@ -1,7 +1,6 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from datetime import timezone
 
 import asyncmy
 import discord
@@ -23,6 +22,7 @@ class Woolinator(commands.Bot):
     session: aiohttp.ClientSession
     pool: asyncmy.Pool
     bot_app_info: discord.AppInfo
+    app_command_ids: dict[str, int]
 
     def __init__(self):
         super().__init__(
@@ -40,8 +40,14 @@ class Woolinator(commands.Bot):
         self.spam_control = commands.CooldownMapping.from_cooldown(4, 7.5, commands.BucketType.user)
 
     async def setup_hook(self) -> None:
+        self.uptime = discord.utils.utcnow()
         self.session = aiohttp.ClientSession()
         self.bot_app_info = await self.application_info()
+
+        try:
+            self.app_command_ids = {cmd.name: cmd.id for cmd in await self.tree.fetch_commands()}
+        except discord.HTTPException:
+            self.app_command_ids = {}
 
         async with self.get_cursor() as cursor:
 
@@ -59,10 +65,6 @@ class Woolinator(commands.Bot):
             statements = [s.strip() for s in cleaned_sql.split(';') if s.strip()]
             for statement in statements:
                 await cursor.execute(statement)
-
-            # Get the SQL server's UTC offset to account for timezone differences
-            await cursor.execute("SELECT TIMEDIFF(NOW(), UTC_TIMESTAMP);")
-            self.sql_server_tz = timezone((await cursor.fetchone())[0])
 
             # Get prefixes
             await cursor.execute('SELECT entity_id, is_guild, prefix FROM prefixes')
@@ -102,6 +104,11 @@ class Woolinator(commands.Bot):
     @property
     def owner(self) -> discord.User:
         return self.bot_app_info.owner
+
+    def cmd_mention(self, qualified_name: str) -> str:
+        """ Build a clickable </command:id> mention, falling back to plain text if unsynced. """
+        cmd_id = self.app_command_ids.get(qualified_name.split()[0])
+        return f"</{qualified_name}:{cmd_id}>" if cmd_id else f"`/{qualified_name}`"
 
     async def start(self) -> None:
         await super().start(os.getenv('BOT_TOKEN'))
@@ -146,10 +153,6 @@ class Woolinator(commands.Bot):
             log.info(f'{interaction.user.name} ({f'in {interaction.guild.name}' if interaction.guild else 'in DM\'s'}) executing: /{interaction.command.qualified_name}')
 
     async def on_ready(self) -> None:
-        
-        if not hasattr(self, 'uptime'):
-            self.uptime = discord.utils.utcnow()
-
         log.info('Ready as %s (%s)', self.user, self.user.id)
 
         log.info('I am in the following guilds:')

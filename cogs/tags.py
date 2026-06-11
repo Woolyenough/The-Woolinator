@@ -218,7 +218,7 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
         
         tags = await self.get_user_tags(ctx.author, ctx.guild)
 
-        if len(tags) > 25:
+        if len(tags) >= 25:
             await ctx.reply("You can only own 25 tags at a time (per guild)!", ephemeral=True)
             return
 
@@ -374,9 +374,13 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
 
         tag = await self.get_tag(name, ctx.guild)
         if tag is None:
-            await ctx.reply("You do not own a tag with this name!", ephemeral=True)
+            await ctx.reply("A tag with that name does not exist!", ephemeral=True)
             return
-        
+
+        if tag['user_id'] != ctx.author.id:
+            await ctx.reply("You do not own this tag!", ephemeral=True)
+            return
+
         async with self.bot.get_cursor() as cursor:
             await cursor.execute('''
                     UPDATE tags
@@ -403,8 +407,11 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
         if member is None:
             try:
                 member = await ctx.guild.fetch_member(tag['user_id'])
+            except discord.NotFound:
+                member = None  # owner has left the server, tag is claimable
             except discord.HTTPException:
                 await ctx.reply("An error occurred while checking if the owner is still in the server... please try again.", ephemeral=True)
+                return
 
         if member is not None:
             await ctx.reply("The owner of this tag is still in the server - you cannot claim it.", ephemeral=True)
@@ -433,7 +440,7 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
 
         tags = await self.get_user_tags(new_owner, ctx.guild)
 
-        if len(tags) > 25:
+        if len(tags) >= 25:
             await ctx.reply("This person has reached the max of 25 tags!", ephemeral=True)
             return
 

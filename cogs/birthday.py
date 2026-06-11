@@ -1,7 +1,8 @@
 import logging
-from datetime import time, timezone, datetime
+from datetime import time, timezone, datetime, date
 import re
 import asyncio
+import calendar
 
 import discord
 from discord import app_commands
@@ -52,7 +53,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
 
         return res[0] if res else None
 
-    async def get_user_birthday(self, user: discord.Member|discord.User|int, guild: discord.Guild|int) -> datetime|None:
+    async def get_user_birthday(self, user: discord.Member|discord.User|int, guild: discord.Guild|int) -> date|None:
         if isinstance(guild, discord.Guild): guild = guild.id
         if isinstance(user, discord.Member) or isinstance(user, discord.User): user = user.id
 
@@ -64,10 +65,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
                 ''', (user, guild,))
             res = await cursor.fetchone()
 
-        if res:
-            parts = res[0].split('.')[::-1]
-            return datetime(*[int(i) for i in parts])  # type: ignore
-        return None
+        return res[0] if res else None
 
     async def get_bday_channel(self, guild: discord.Guild|int) -> int | None:
         """ Get snowflake channel ID, `None` if it isn't set. """
@@ -88,12 +86,12 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
 
         channel_id = await self.get_bday_channel(user.guild)
         if not channel_id:
-            if user.guild_permissions.manage_guild: return f"\n-# {Emojis.warn} No birthday channel has been set up. Until then, no birthdays will be announced. Set one now with </birthday set:1381472026660835398>."
+            if user.guild_permissions.manage_guild: return f"\n-# {Emojis.warn} No birthday channel has been set up. Until then, no birthdays will be announced. Set one now with {self.bot.cmd_mention('birthday-channel')}."
             else: return f"\n-# {Emojis.warn} No birthday channel has been set up. Until then, no birthdays will be announced."
         return ''
 
 
-    def format_date(self, dt: datetime) -> str:
+    def format_date(self, dt: date) -> str:
 
         def ordinal_suffix(day) -> str:
             if 10 <= day % 100 <= 20:
@@ -116,7 +114,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
         if date:
             await ctx.reply(f"Your set birthdate for this guild is `{self.format_date(date)}`{warning}", ephemeral=True)
         else:
-            await ctx.reply(f"You have no set birthdate for this server!\n> Set one now with </birthday set:1381472026660835398>{warning}", ephemeral=True)
+            await ctx.reply(f"You have no set birthdate for this server!\n> Set one now with {self.bot.cmd_mention('birthday set')}{warning}", ephemeral=True)
 
     @birthday.command(name="remove", description="Remove your birth date for this guild")
     async def birthday_remove(self, ctx: Context):
@@ -182,7 +180,7 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
                     INSERT INTO birthdays (user_id, guild_id, date)
                     VALUES (%s, %s, %s)
                     ON DUPLICATE KEY UPDATE date = VALUES(date);
-                ''', (ctx.author.id, ctx.guild.id, birth_date.strftime('%d.%m.%Y')))
+                ''', (ctx.author.id, ctx.guild.id, birth_date.date()))
 
         content_to_send = f"Your birthday has been set to `{self.format_date(birth_date)}`{warning}"
         if message is not None:
@@ -203,26 +201,26 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
     @tasks.loop(time=time(12, 0, tzinfo=timezone.utc))
     async def birthday_notifier(self):
         now = discord.utils.utcnow()
-        # `now.day` (& month) does not include 0 if single digit
-        day = now.strftime('%d')
-        month = now.strftime('%m')
+
+        # Announce Feb 29th birthdays on Feb 28th in non-leap years
+        include_feb29 = now.month == 2 and now.day == 28 and not calendar.isleap(now.year)
 
         async with self.bot.get_cursor() as cursor:
             await cursor.execute('''
                 SELECT guild_id, user_id, date, last_announced
                 FROM birthdays
-                WHERE SUBSTRING_INDEX(date, '.', 1) = %s -- day
-                    AND SUBSTRING_INDEX(SUBSTRING_INDEX(date, '.', 2), '.', -1) = %s -- month
-            ''', (day, month,))
-        
+                WHERE (MONTH(date) = %s AND DAY(date) = %s)
+                    OR (%s AND MONTH(date) = 2 AND DAY(date) = 29)
+            ''', (now.month, now.day, include_feb29))
+
             rows = await cursor.fetchall()
 
         index: dict[int, list[tuple[int, int]]] = {}
-        guild_channels: dict[int, int] = {}
+        guild_channels: dict[int, int|None] = {}
         for row in rows:
             guild_id: int = row[0]
             user_id: int = row[1]
-            date: str = row[2]
+            birth_date: date = row[2]
             last_announced: int = row[3]
 
             # User's birthday already announced this year
@@ -232,45 +230,53 @@ class Birthday(commands.Cog, name="Birthday Announcer", description="Keep track 
             if self.bot.get_guild(guild_id) is None:
                 continue
 
-            birthday_channel_id = await self.get_bday_channel(guild_id)
+            # Look the channel up once per guild
+            if guild_id not in guild_channels:
+                guild_channels[guild_id] = await self.get_bday_channel(guild_id)
+
             # birthday channel not set
-            if birthday_channel_id is None: continue
-            year = int(date.split('.')[2])
-            index.setdefault(guild_id, []).append((user_id, year))
-            guild_channels[guild_id] = birthday_channel_id
+            if guild_channels[guild_id] is None: continue
+            index.setdefault(guild_id, []).append((user_id, birth_date.year))
 
         for guild_id, user_list in index.items():
             await asyncio.sleep(12.5)
 
-            guild = await self.bot.get_or_fetch_guild(guild_id)
+            # One failing guild (e.g. missing send permission) must not kill the whole loop
+            try:
+                guild = await self.bot.get_or_fetch_guild(guild_id)
+                if guild is None:
+                    continue
 
-            channel = await self.bot.get_or_fetch_channel(guild, guild_channels[guild_id])
-            if not channel:
-                continue
+                channel = await self.bot.get_or_fetch_channel(guild, guild_channels[guild_id])
+                if not channel:
+                    continue
 
-            if not guild.chunked:
-                await guild.chunk()
-            
-            birthday_people = []
-            for user_id, year in user_list:
-                user = guild.get_member(user_id)
-                if not user: continue  # not in the server
-                age = now.year - year
-                birthday_people.append(f"Happy birthday to {user.mention}, who is now {age}! :sparkles:")
+                if not guild.chunked:
+                    await guild.chunk()
 
-                # Update the last_announced field to the current year after announcing the birthday
-                async with self.bot.get_cursor() as cursor:
-                    await cursor.execute('''
-                        UPDATE birthdays
-                        SET last_announced = %s
-                        WHERE user_id = %s AND guild_id = %s
-                    ''', (now.year, user_id, guild_id))
+                birthday_people = []
+                for user_id, year in user_list:
+                    user = guild.get_member(user_id)
+                    if not user: continue  # not in the server
+                    age = now.year - year
+                    birthday_people.append(f"Happy birthday to {user.mention}, who is now {age}! :sparkles:")
 
-            if birthday_people:
-                num = len(birthday_people)
-                footer = "May you " + ('' if num == 1 else 'both ' if num == 2 else 'all ') + "have a blessed day 🎂🎉"
-                message = f"{'\n'.join(birthday_people)}\n\n{footer}"
-                await channel.send(message)
+                    # Update the last_announced field to the current year after announcing the birthday
+                    async with self.bot.get_cursor() as cursor:
+                        await cursor.execute('''
+                            UPDATE birthdays
+                            SET last_announced = %s
+                            WHERE user_id = %s AND guild_id = %s
+                        ''', (now.year, user_id, guild_id))
+
+                if birthday_people:
+                    num = len(birthday_people)
+                    footer = "May you " + ('' if num == 1 else 'both ' if num == 2 else 'all ') + "have a blessed day 🎂🎉"
+                    message = f"{'\n'.join(birthday_people)}\n\n{footer}"
+                    await channel.send(message)
+
+            except Exception:
+                log.exception("Failed to announce birthdays in guild %s", guild_id)
 
 
 async def setup(bot: Woolinator) -> None:

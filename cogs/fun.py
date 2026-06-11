@@ -40,7 +40,7 @@ class Fun(commands.Cog, name="Fun", description="Welcome to the house of fun"):
             # Match anything inside square brackets, non-greedy
             return re.sub(r"\[([^\[\]]+?)\]", replacer, text)
 
-        async with self.bot.session.get(f"https://api.urbandictionary.com/v0/define?term={search}") as resp:
+        async with self.bot.session.get("https://api.urbandictionary.com/v0/define", params={"term": search}) as resp:
             if resp.status != 200:
                 return await ctx.reply("Failed to fetch definition - API may be down :pensive:", ephemeral=True)
             data = await resp.json()
@@ -82,7 +82,7 @@ class Fun(commands.Cog, name="Fun", description="Welcome to the house of fun"):
     @commands.hybrid_command(name="insult", description="Insult someone")
     @app_commands.describe(member="The member you want to insult")
     async def insult(self, ctx: Context, member: discord.Member):
-        async with self.bot.session.get(f"https://insult.mattbas.org/api/insult?who={member.name}") as resp:
+        async with self.bot.session.get("https://insult.mattbas.org/api/insult", params={"who": member.name}) as resp:
             if resp.status != 200:
                 return await ctx.reply("Failed to fetch insult - API may be down :pensive:", ephemeral=True)
             data = await resp.text()

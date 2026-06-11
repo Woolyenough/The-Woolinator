@@ -176,7 +176,7 @@ class HelpCommand(commands.HelpCommand):
 
         for command in group.commands:
             signature = self.format_command_signature(command)
-            embed.add_field(name=signature, value=command.description, inline=False)
+            embed.add_field(name=signature, value=command.description or '...', inline=False)
 
         self.add_help_footer(embed)
         await self.get_destination().send(embed=embed)
@@ -189,7 +189,7 @@ class HelpCommand(commands.HelpCommand):
 
         for command in visible_commands:
             signature = self.format_command_signature(command)
-            embed.add_field(name=signature, value=command.description, inline=False)
+            embed.add_field(name=signature, value=command.description or '...', inline=False)
 
         self.add_help_footer(embed)
         await self.get_destination().send(embed=embed)

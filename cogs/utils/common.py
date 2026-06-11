@@ -71,7 +71,7 @@ def parse_entered_duration(when: str) -> tuple[relativedelta, list[str], list[st
             list[str]: Substrings that were valid but rejected for being excessively long.
 
     Example:
-        >>> convert_time_human_to_delta('2h, 30 min, 5 days, 1 seco')
+        >>> parse_entered_duration('2h, 30 min, 5 days, 1 seco')
         (relativedelta(days=+5, hours=+2, minutes=+30, seconds=+1), [], [])
     """
 
@@ -80,9 +80,14 @@ def parse_entered_duration(when: str) -> tuple[relativedelta, list[str], list[st
     invalid_formats = []
     too_long = []
 
-    when: list[str] = when.replace('and', ',').replace('&', ',').replace('+', ',').strip(' ').split(',')
+    when: list[str] = when.replace('and', ',').replace('&', ',').replace('+', ',').split(',')
     for d in when:
-        match = re.match(r"(\d+)(\D+)", d)  # (\d+) captures digits, (\D+) captures non-digits
+        d = d.strip()
+        if not d:
+            continue
+
+        # The whole part must be a number followed by a unit, e.g. '10 min'
+        match = re.fullmatch(r"(\d+)\s*([A-Za-z]+)", d)
 
         if match:
             value = int(match.group(1))  # The number (value)
@@ -129,6 +134,9 @@ def parse_entered_duration(when: str) -> tuple[relativedelta, list[str], list[st
                     too_long.append(d)
                     continue
                 duration += relativedelta(years=value)
+
+            else:
+                invalid_formats.append(d)
 
         else:
             invalid_formats.append(d)

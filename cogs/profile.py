@@ -85,7 +85,8 @@ class Profile(commands.Cog, name="Profile", description="Do some funky things wi
     @app_commands.describe(member="The user/member whose avatar you want to see")
     async def avatar(self, ctx: Context, member: discord.Member|discord.User|None = commands.Author):
         guild_avatar = getattr(member, "guild_avatar", None) if ctx.guild else None
-        global_avatar = getattr(member, "avatar", None)
+        # Fall back to the default avatar so the global embed always exists
+        global_avatar = member.avatar or member.default_avatar
 
         global_embed, guild_embed = self.create_asset_display_embeds(global_avatar, guild_avatar)
         if global_embed:
@@ -99,7 +100,7 @@ class Profile(commands.Cog, name="Profile", description="Do some funky things wi
     @commands.hybrid_command(name="pixelate", aliases=["pixel"], description="Pixelate someone's avatar")
     @app_commands.describe(dimension="The amount of pixels in the width & height of the new avatar", member="The user/member whose avatar you want to see")
     async def pixelate(self, ctx: Context, dimension: commands.Range[int, 1, 1024] = 8, member: discord.Member|discord.User|None = commands.Author):
-        global_avatar_url = getattr(member, "avatar", member.display_avatar).url
+        global_avatar_url = (member.avatar or member.default_avatar).url
         guild_avatar = getattr(member, "guild_avatar", None)
         guild_avatar_url = guild_avatar.url if ctx.guild and guild_avatar else None
 
@@ -128,8 +129,8 @@ class Profile(commands.Cog, name="Profile", description="Do some funky things wi
             ctx.author.id,
             global_embed=gl_embed,
             guild_embed=gu_embed,
-            global_file=(getattr(gl_buffer, "getvalue", None), f"pixelated-global-avatar-{member.name}.png") if gl_buffer else None,
-            guild_file=(getattr(gu_buffer, "getvalue", None), f"pixelated-guild-avatar-{member.name}.png") if gu_buffer else None
+            global_file=(gl_buffer.getvalue(), f"pixelated-global-avatar-{member.name}.png") if gl_buffer else None,
+            guild_file=(gu_buffer.getvalue(), f"pixelated-guild-avatar-{member.name}.png") if gu_buffer else None
         )
 
         view.message = await ctx.reply(embed=gu_embed or gl_embed, file=gu_file or gl_file, view=view)
