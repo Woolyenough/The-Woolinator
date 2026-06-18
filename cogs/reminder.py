@@ -81,7 +81,7 @@ class RemindersListView(ui.View):
 
         async with self.bot.get_cursor() as cursor:
             for reminder_id in view.reminders_to_remove:
-                await cursor.execute("DELETE FROM reminders WHERE id = %s", (reminder_id,))
+                await cursor.execute("DELETE FROM reminders WHERE id = %s AND user_id = %s", (reminder_id, interaction.user.id))
 
                 task: asyncio.Task|None = self.asyncio_timers.get(reminder_id, None)
                 if task:
