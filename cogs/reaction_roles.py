@@ -67,29 +67,6 @@ class ReactionRoles(commands.Cog, name="Reaction Roles", description="Let member
         """
         return str(emoji.id) if emoji.id else emoji.name
 
-    def parse_message_ref(self, ctx: Context, ref: str) -> tuple[int | None, int] | None:
-        """ Resolve a message reference to ``(channel_id, message_id)``.
-
-        Accepts a jump link, a raw message ID (assumed to be in the current
-        channel), or a ``channel_id-message_id`` pair. Returns ``None`` if the
-        reference can't be understood.
-        """
-        ref = ref.strip()
-
-        match = MESSAGE_LINK_RE.fullmatch(ref)
-        if match:
-            return int(match.group(1)), int(match.group(2))
-
-        if '-' in ref:
-            channel_part, _, message_part = ref.partition('-')
-            if channel_part.isdigit() and message_part.isdigit():
-                return int(channel_part), int(message_part)
-
-        if ref.isdigit():
-            return None, int(ref)
-
-        return None
-
     async def fetch_bound_message(self, ctx: Context, channel_id: int | None, message_id: int) -> discord.Message | None:
         """ Fetch a message in this guild from a parsed reference, or ``None``. """
         if channel_id is None:
@@ -272,7 +249,7 @@ class ReactionRoles(commands.Cog, name="Reaction Roles", description="Let member
 
     @commands.hybrid_group(name="reaction-role", aliases=["rr"], fallback="list",
                            description="List the reaction roles set up in this server")
-    @checks.hybrid_has_permissions(manage_roles=True)
+    @checks.hybrid_has_permissions(manage_roles=True, manage_guild=True)
     async def reactionrole(self, ctx: Context):
         async with self.bot.get_cursor() as cursor:
             await cursor.execute('''
@@ -284,7 +261,7 @@ class ReactionRoles(commands.Cog, name="Reaction Roles", description="Let member
             rows = await cursor.fetchall()
 
         if not rows:
-            await ctx.reply(f"No reaction roles are set up yet. Add one with {self.bot.cmd_mention('reactionrole add')}.", ephemeral=True)
+            await ctx.reply(f"No reaction roles are set up yet. Add one with {self.bot.cmd_mention('reaction-role add')}.", ephemeral=True)
             return
 
         # Group bindings by the message they live on, preserving order.
@@ -311,24 +288,17 @@ class ReactionRoles(commands.Cog, name="Reaction Roles", description="Let member
             view = PaginationEmbedsView(embeds, author_id=ctx.author.id)
             view.message = await ctx.reply(embed=embeds[0], view=view)
 
-    @reactionrole.command(name="add", description="Bind an emoji reaction on a message to a role", extras={
-        "examples": ["https://discord.com/channels/.../.../... 🎮 @Gamer", "1234567890 :custom_emoji: @Member"],
+    @reactionrole.command(name="add", aliases=["create"], description="Bind an emoji reaction on a message to a role", extras={
+        "examples": ["https://discord.com/channels/.../.../... \U0001f3ae @Gamer", "1234567890 :custom_emoji: @Member", "1234567890-1234567890 \U0001f601 @Happy"],
     })
     @app_commands.describe(message="Link or ID of the message to add the reaction to", emoji="The emoji members react with", role="The role to grant")
-    @checks.hybrid_has_permissions(manage_roles=True)
+    @checks.hybrid_has_permissions(manage_roles=True, manage_guild=True)
     @commands.bot_has_permissions(manage_roles=True, add_reactions=True, read_message_history=True)
-    async def reactionrole_add(self, ctx: Context, message: str, emoji: str, role: discord.Role):
+    async def reactionrole_add(self, ctx: Context, message: discord.Message, emoji: str, role: discord.Role):
         role_error = self.validate_role(ctx, role)
         if role_error:
             await ctx.reply(role_error, ephemeral=True)
             return
-
-        ref = self.parse_message_ref(ctx, message)
-        if ref is None:
-            await ctx.reply("That doesn't look like a valid message link or ID.", ephemeral=True)
-            return
-
-        channel_id, message_id = ref
 
         partial_emoji = discord.PartialEmoji.from_str(emoji.strip())
         if partial_emoji is None or (not partial_emoji.id and not partial_emoji.name):
@@ -337,7 +307,7 @@ class ReactionRoles(commands.Cog, name="Reaction Roles", description="Let member
 
         key = self.emoji_key(partial_emoji)
 
-        bindings = self.cache.get(message_id, {})
+        bindings = self.cache.get(message.id, {})
         if key in bindings:
             await ctx.reply("That emoji is already bound to a role on that message. Remove it first if you want to rebind it.", ephemeral=True)
             return
@@ -347,7 +317,7 @@ class ReactionRoles(commands.Cog, name="Reaction Roles", description="Let member
             await ctx.reply(f"That message already has the maximum of {max_bindings} reaction roles.", ephemeral=True)
             return
 
-        target = await self.fetch_bound_message(ctx, channel_id, message_id)
+        target = await self.fetch_bound_message(ctx, message.channel.id, message.id)
         if target is None:
             await ctx.reply("I couldn't find that message. Make sure it's in this server and I can see the channel.", ephemeral=True)
             return
@@ -363,21 +333,15 @@ class ReactionRoles(commands.Cog, name="Reaction Roles", description="Let member
                     INSERT INTO reaction_roles (guild_id, channel_id, message_id, emoji, emoji_display, role_id)
                     VALUES (%s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE emoji_display = VALUES(emoji_display), role_id = VALUES(role_id), channel_id = VALUES(channel_id)
-                ''', (ctx.guild.id, target.channel.id, message_id, key, str(partial_emoji), role.id))
+                ''', (ctx.guild.id, target.channel.id, message.id, key, str(partial_emoji), role.id))
 
-        self.cache.setdefault(message_id, {})[key] = role.id
+        self.cache.setdefault(message.id, {})[key] = role.id
         await ctx.reply(f"{tick(True)} Done! Reacting with {partial_emoji} on [that message]({target.jump_url}) will now grant {role.mention}.")
 
-    @reactionrole.command(name="remove", aliases=["delete"], description="Unbind an emoji from a role on a message")
+    @reactionrole.command(name="remove", aliases=["delete", "rm", "del"], description="Unbind an emoji from a role on a message")
     @app_commands.describe(message="Link or ID of the message", emoji="The bound emoji to remove")
-    @checks.hybrid_has_permissions(manage_roles=True)
-    async def reactionrole_remove(self, ctx: Context, message: str, emoji: str):
-        ref = self.parse_message_ref(ctx, message)
-        if ref is None:
-            await ctx.reply("That doesn't look like a valid message link or ID.", ephemeral=True)
-            return
-
-        channel_id, message_id = ref
+    @checks.hybrid_has_permissions(manage_roles=True, manage_guild=True)
+    async def reactionrole_remove(self, ctx: Context, message: discord.Message, emoji: str):
 
         partial_emoji = discord.PartialEmoji.from_str(emoji.strip())
         if partial_emoji is None or (not partial_emoji.id and not partial_emoji.name):
@@ -386,54 +350,48 @@ class ReactionRoles(commands.Cog, name="Reaction Roles", description="Let member
 
         key = self.emoji_key(partial_emoji)
 
-        if key not in self.cache.get(message_id, {}):
+        if key not in self.cache.get(message.id, {}):
             await ctx.reply("There's no reaction role bound to that emoji on that message.", ephemeral=True)
             return
 
         async with self.bot.get_cursor() as cursor:
             await cursor.execute("SELECT channel_id FROM reaction_roles WHERE guild_id = %s AND message_id = %s AND emoji = %s",
-                                 (ctx.guild.id, message_id, key))
+                                 (ctx.guild.id, message.id, key))
             row = await cursor.fetchone()
             await cursor.execute("DELETE FROM reaction_roles WHERE guild_id = %s AND message_id = %s AND emoji = %s",
-                                 (ctx.guild.id, message_id, key))
+                                 (ctx.guild.id, message.id, key))
 
-        self.cache[message_id].pop(key, None)
-        if not self.cache[message_id]:
-            del self.cache[message_id]
+        self.cache[message.id].pop(key, None)
+        if not self.cache[message.id]:
+            del self.cache[message.id]
 
-        await self.remove_bot_reaction(row[0] if row else channel_id, message_id, ctx.guild, partial_emoji)
+        await self.remove_bot_reaction(row[0] if row else message.channel.id, message.id, ctx.guild, partial_emoji)
         await ctx.reply(f"{tick(True)} Removed the {partial_emoji} reaction role from that message.")
 
     @reactionrole.command(name="clear", description="Remove every reaction role from a message")
     @app_commands.describe(message="Link or ID of the message to clear")
     @checks.hybrid_has_permissions(manage_roles=True)
-    async def reactionrole_clear(self, ctx: Context, message: str):
-        ref = self.parse_message_ref(ctx, message)
-        if ref is None:
-            await ctx.reply("That doesn't look like a valid message link or ID.", ephemeral=True)
-            return
+    async def reactionrole_clear(self, ctx: Context, message: discord.Message):
 
-        channel_id, message_id = ref
-
-        if message_id not in self.cache:
+        if message.id not in self.cache:
             await ctx.reply("That message has no reaction roles bound to it.", ephemeral=True)
             return
 
-        count = len(self.cache[message_id])
+        count = len(self.cache[message.id])
 
         async with self.bot.get_cursor() as cursor:
-            await cursor.execute("SELECT channel_id FROM reaction_roles WHERE guild_id = %s AND message_id = %s LIMIT 1", (ctx.guild.id, message_id))
+            await cursor.execute("SELECT channel_id FROM reaction_roles WHERE guild_id = %s AND message_id = %s LIMIT 1", (ctx.guild.id, message.id))
             row = await cursor.fetchone()
-            await cursor.execute("DELETE FROM reaction_roles WHERE guild_id = %s AND message_id = %s", (ctx.guild.id, message_id))
+            await cursor.execute("DELETE FROM reaction_roles WHERE guild_id = %s AND message_id = %s", (ctx.guild.id, message.id))
 
-        self.cache.pop(message_id, None)
+        self.cache.pop(message.id, None)
 
         # Best-effort: clear our reactions from the message if it still exists.
-        stored_channel_id = row[0] if row else channel_id
+        stored_channel_id = row[0] if row else message.channel.id
         try:
             channel = ctx.guild.get_channel(stored_channel_id) if stored_channel_id else ctx.channel
             if channel is not None:
-                target = await channel.fetch_message(message_id)
+                target = await channel.fetch_message(message.id)
                 await target.clear_reactions()
         except (discord.HTTPException, AttributeError):
             pass

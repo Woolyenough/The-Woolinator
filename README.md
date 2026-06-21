@@ -18,7 +18,7 @@ To do this, you will need:
 
 To configure, copy `.env.TEMPLATE` into `.env`, and modify the values inside it.
 
-Then, run with Python (on Linux, using Bash):
+Then, run with Python (Linux w/ Bash):
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -26,7 +26,7 @@ python -m pip install -r requirements.txt
 python launcher.py
 ```
 
-## Public Instances
+## Public Instance
 The bot is only in servers that I like. Here are a few of them:
 1. [Sharpness](https://discord.gg/sharpness)&nbsp;&nbsp;![Join](https://badgen.net/discord/members/sharpness?color=blue&label=&cache=600&scale=.95)
 2. [BlotCraft](https://discord.gg/blotcraft)&nbsp;&nbsp;![Join](https://badgen.net/discord/members/blotcraft?color=blue&label=&cache=600&scale=.95)

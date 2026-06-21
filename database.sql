@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Jun 10, 2026 at 05:25 PM
+-- Generation Time: Jun 19, 2026 at 08:30 PM
 -- Server version: 10.11.14-MariaDB-0ubuntu0.24.04.1
 -- PHP Version: 8.3.6
 
@@ -61,6 +61,21 @@ CREATE TABLE IF NOT EXISTS `guild_settings` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `ignored_log_channels`
+--
+
+CREATE TABLE IF NOT EXISTS `ignored_log_channels` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `guild_id` bigint(20) UNSIGNED NOT NULL,
+  `channel_id` bigint(20) UNSIGNED NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_guild_channel` (`guild_id`,`channel_id`),
+  KEY `idx_guild` (`guild_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `prefixes`
 --
 
@@ -71,6 +86,26 @@ CREATE TABLE IF NOT EXISTS `prefixes` (
   `prefix` varchar(4) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `unique_entity` (`entity_id`,`is_guild`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `reaction_roles`
+--
+
+CREATE TABLE IF NOT EXISTS `reaction_roles` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `guild_id` bigint(20) UNSIGNED NOT NULL,
+  `channel_id` bigint(20) UNSIGNED NOT NULL,
+  `message_id` bigint(20) UNSIGNED NOT NULL,
+  `emoji` varchar(64) NOT NULL,
+  `emoji_display` varchar(64) NOT NULL,
+  `role_id` bigint(20) UNSIGNED NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_message_emoji` (`message_id`,`emoji`),
+  KEY `idx_message` (`message_id`),
+  KEY `idx_guild` (`guild_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -108,25 +143,5 @@ CREATE TABLE IF NOT EXISTS `tags` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `unique_guild_name` (`guild_id`,`name`),
   KEY `idx_user_guild` (`user_id`,`guild_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `reaction_roles`
---
-
-CREATE TABLE IF NOT EXISTS `reaction_roles` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `guild_id` bigint(20) UNSIGNED NOT NULL,
-  `channel_id` bigint(20) UNSIGNED NOT NULL,
-  `message_id` bigint(20) UNSIGNED NOT NULL,
-  `emoji` varchar(64) NOT NULL,
-  `emoji_display` varchar(64) NOT NULL,
-  `role_id` bigint(20) UNSIGNED NOT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `unique_message_emoji` (`message_id`,`emoji`),
-  KEY `idx_message` (`message_id`),
-  KEY `idx_guild` (`guild_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 COMMIT;

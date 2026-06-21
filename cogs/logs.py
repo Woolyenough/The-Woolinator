@@ -53,6 +53,16 @@ LOG_FEATURES: dict[str, dict[str, str]] = {
 
 ACCENT = 0xFFF9E0
 
+# Channel types offered when picking channels/categories to exclude from message logs
+IGNORE_CHANNEL_TYPES = [
+    discord.ChannelType.text,
+    discord.ChannelType.news,
+    discord.ChannelType.voice,
+    discord.ChannelType.stage_voice,
+    discord.ChannelType.forum,
+    discord.ChannelType.category,
+]
+
 
 class FeatureSelect(ui.Select):
     """ Overview dropdown: pick a log type to configure. """
@@ -96,6 +106,31 @@ class FeatureChannelSelect(ui.ChannelSelect):
         await interaction.response.edit_message(embed=self.lview.overview_embed(), view=self.lview)
 
 
+class MessageIgnoreSelect(ui.ChannelSelect):
+    """ Dropdown: pick channels/categories to exclude from message logs. """
+
+    def __init__(self, parent: "LoggingView"):
+        self.lview = parent
+        super().__init__(
+            placeholder="Ignore channels for message logs…",
+            min_values=0,
+            max_values=25,
+            channel_types=IGNORE_CHANNEL_TYPES,
+        )
+        guild = parent.bot.get_guild(parent.guild_id)
+        # Only pre-select channels that still exist, otherwise Discord rejects the component
+        defaults = [discord.Object(id=cid) for cid in parent.ignored if guild and guild.get_channel(cid)]
+        if defaults:
+            self.default_values = defaults
+
+    async def callback(self, interaction: discord.Interaction):
+        ids = [channel.id for channel in self.values]
+        await self.lview.cog.set_ignored_channels(self.lview.guild_id, ids)
+        self.lview.ignored = set(ids)
+        self.lview.show_feature("log-messages")
+        await interaction.response.edit_message(embed=self.lview.feature_embed("log-messages"), view=self.lview)
+
+
 class DisableButton(ui.Button):
     def __init__(self, parent: "LoggingView"):
         self.lview = parent
@@ -120,15 +155,16 @@ class BackButton(ui.Button):
 
 
 class LoggingView(ui.View):
-    """ Guided two-level config: overview -> per-feature channel picker. """
+    """ Overview -> per-feature channel picker. """
 
-    def __init__(self, cog: "Logging", author: discord.User | discord.Member, guild_id: int, config: dict[str, int | None]):
+    def __init__(self, cog: "Logging", author: discord.User | discord.Member, guild_id: int, config: dict[str, int | None], ignored: set[int]):
         super().__init__(timeout=120)
         self.cog = cog
         self.bot = cog.bot
         self.author_id = author.id
         self.guild_id = guild_id
         self.config = config
+        self.ignored = ignored
         self.active_feature: str | None = None
         self.message = None
         self.show_overview()
@@ -139,6 +175,14 @@ class LoggingView(ui.View):
         guild = self.bot.get_guild(self.guild_id)
         channel = guild.get_channel(channel_id) if guild else None
         return f"#{channel.name}" if channel else None
+
+    def _format_ignored(self, channel_id: int) -> str:
+        """ Categories show as their plain name (no #); channels keep their #mention. """
+        guild = self.bot.get_guild(self.guild_id)
+        channel = guild.get_channel(channel_id) if guild else None
+        if isinstance(channel, discord.CategoryChannel):
+            return rmd(channel.name)
+        return f"<#{channel_id}>"
 
     def overview_embed(self) -> discord.Embed:
         lines = []
@@ -155,9 +199,16 @@ class LoggingView(ui.View):
         channel_id = self.config.get(code)
         status = f"Currently logging to <#{channel_id}>" if channel_id else "Not currently set"
         verb = "change" if channel_id else "set"
+        desc = f"{meta['desc']}\n\n{status}\n\nSelect a channel below to {verb} where these logs are sent."
+        if code == "log-messages":
+            if self.ignored:
+                ignored_str = ', '.join(self._format_ignored(cid) for cid in self.ignored)
+            else:
+                ignored_str = "*None*"
+            desc += f"\n\n**Ignored:**\n> -# Edits & deletions in these channels (or categories) won't be logged.\n{ignored_str}"
         embed = discord.Embed(
             title=f"{meta['emoji']} {meta['label']}",
-            description=f"{meta['desc']}\n\n{status}\n\nSelect a channel below to {verb} where these logs are sent.",
+            description=desc,
             colour=ACCENT,
         )
         return embed
@@ -171,6 +222,8 @@ class LoggingView(ui.View):
         self.clear_items()
         self.active_feature = code
         self.add_item(FeatureChannelSelect(self, code))
+        if code == "log-messages":
+            self.add_item(MessageIgnoreSelect(self))
         if self.config.get(code):
             self.add_item(DisableButton(self))
         self.add_item(BackButton(self))
@@ -234,6 +287,45 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
         """ Drop every feature config pointing at a (now-gone) channel. """
         async with self.bot.get_cursor() as cursor:
             await cursor.execute("DELETE FROM channels WHERE guild_id = %s AND channel_id = %s", (guild_id, channel_id))
+
+    async def get_ignored_channels(self, guild_id: int) -> set[int]:
+        """ Channels/categories whose messages should be excluded from message logs. """
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("SELECT channel_id FROM ignored_log_channels WHERE guild_id = %s", (guild_id,))
+            rows = await cursor.fetchall()
+        return {row[0] for row in rows}
+
+    async def set_ignored_channels(self, guild_id: int, channel_ids: list[int]) -> None:
+        """ Replace the whole ignored-channel set for a guild with the given IDs. """
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("DELETE FROM ignored_log_channels WHERE guild_id = %s", (guild_id,))
+            if channel_ids:
+                await cursor.executemany(
+                    "INSERT INTO ignored_log_channels (guild_id, channel_id) VALUES (%s, %s)",
+                    [(guild_id, cid) for cid in channel_ids],
+                )
+
+    async def remove_ignored_channel(self, guild_id: int, channel_id: int) -> None:
+        """ Drop a single ignored entry (e.g. when its channel/category is deleted). """
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("DELETE FROM ignored_log_channels WHERE guild_id = %s AND channel_id = %s", (guild_id, channel_id))
+
+    async def is_channel_ignored(self, guild_id: int, channel: discord.abc.GuildChannel | discord.Thread) -> bool:
+        """ True if the channel, its category, or its thread parent is on the ignore list. """
+        ignored = await self.get_ignored_channels(guild_id)
+        if not ignored:
+            return False
+        candidates = {channel.id}
+        parent = getattr(channel, "parent", None)
+        if parent is not None:
+            candidates.add(parent.id)
+            parent_category = getattr(parent, "category_id", None)
+            if parent_category:
+                candidates.add(parent_category)
+        category_id = getattr(channel, "category_id", None)
+        if category_id:
+            candidates.add(category_id)
+        return not candidates.isdisjoint(ignored)
 
     async def get_mod_log_setup_done(self, guild_id: int) -> bool:
         async with self.bot.get_cursor() as cursor:
@@ -395,10 +487,13 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
         """ Clean up any log/feature configs when their channel is deleted. """
         self._webhooks.pop(channel.id, None)
         await self.remove_channel_by_id(channel.guild.id, channel.id)
+        await self.remove_ignored_channel(channel.guild.id, channel.id)
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message):
         if message.guild is None or message.author.bot:
+            return
+        if await self.is_channel_ignored(message.guild.id, message.channel):
             return
 
         embed = discord.Embed(
@@ -416,6 +511,8 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
         if after.guild is None or after.author.bot or before.content == after.content:
+            return
+        if await self.is_channel_ignored(after.guild.id, after.channel):
             return
 
         embed = discord.Embed(colour=0xff8d42, timestamp=after.edited_at or discord.utils.utcnow())
@@ -496,7 +593,8 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
     @checks.hybrid_has_permissions(manage_guild=True)
     async def logging_command(self, ctx: Context):
         config = await self.get_all_log_channels(ctx.guild.id)
-        view = LoggingView(self, ctx.author, ctx.guild.id, config)
+        ignored = await self.get_ignored_channels(ctx.guild.id)
+        view = LoggingView(self, ctx.author, ctx.guild.id, config, ignored)
         view.message = await ctx.reply(embed=view.overview_embed(), view=view, ephemeral=True)
 
 
