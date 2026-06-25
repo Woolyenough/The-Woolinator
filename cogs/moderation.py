@@ -29,7 +29,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
 
     @property
     def emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name="moderation",id=1337677182197039105)
+        return discord.PartialEmoji(name="\U0001f6e0")
 
     # --- Helpers ---
 
@@ -223,7 +223,7 @@ class Moderation(commands.Cog, name="Moderation", description="Tools to help mod
     @commands.bot_has_permissions(moderate_members=True)
     @checks.hybrid_has_permissions(moderate_members=True)
     @app_commands.describe(member="The member you want to time out", duration="The duration of the timeout; e.g., '1d, 10 days, 5secs' (separated by comma)", reason="The reason for the time out", dm="Whether to DM the user about their punishment")
-    async def mute(self, ctx: Context, member: discord.Member, duration: commands.Range[str, 2, 50], *, reason: commands.Range[str, 1, 400] = "No reason", dm: bool = True):
+    async def mute(self, ctx: Context, member: discord.Member, duration: commands.Range[str, 1, 50], *, reason: commands.Range[str, 1, 400] = "No reason", dm: bool = True):
 
         if member.guild_permissions.manage_guild:
             return await ctx.reply("You can't mute members with the `manage_guild` permission", ephemeral=True)

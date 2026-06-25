@@ -25,9 +25,19 @@ class Woolinator(commands.Bot):
     app_command_ids: dict[str, int]
 
     def __init__(self):
+        intents = discord.Intents.none()
+        intents.guilds = True
+        intents.members = True                # privileged
+        intents.presences = True              # privileged
+        intents.messages = True               # message events + command processing (guild & DM)
+        intents.message_content = True        # privileged
+        intents.reactions = True              # reaction roles
+        intents.voice_states = True           # voice channel logging
+        intents.emojis_and_stickers = True    # emoji/sticker counts in `/server`
+
         super().__init__(
             command_prefix=_get_prefix_callable,
-            intents=discord.Intents.all(),
+            intents=intents,
             tree_cls=AppCommandsTree,
             activity=discord.Activity(type=discord.ActivityType.watching, name='meow meow meow meow meoowww'),
             allowed_mentions=discord.AllowedMentions(roles=False, everyone=False, users=True, replied_user=False),
@@ -37,7 +47,7 @@ class Woolinator(commands.Bot):
         self.guild_prefixes = {}
         self.user_prefixes = {}
 
-        self.spam_control = commands.CooldownMapping.from_cooldown(4, 7.5, commands.BucketType.user)
+        self.spam_control = commands.CooldownMapping.from_cooldown(4, 8, commands.BucketType.user)
 
     async def setup_hook(self) -> None:
         self.uptime = discord.utils.utcnow()

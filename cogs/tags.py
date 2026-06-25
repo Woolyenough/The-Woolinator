@@ -25,7 +25,7 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
 
     @property
     def emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name="tags", id=1337677206175879168)
+        return discord.PartialEmoji(name="\U0001f3f7")
 
     # --- Helpers ---
 

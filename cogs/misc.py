@@ -13,15 +13,18 @@ from discord.ext import commands, tasks
 
 from .utils import checks
 from .utils.emojis import tick
-from .utils.common import trim_str
+from .utils.common import trim_str, plur
 from .utils.context import Context
-from .utils.views import GlobalGuildSwitchView, GuildInfoView
+from .utils.views import GlobalGuildSwitchView, GuildInfoView, handle_view_edit
 from .utils.emojis import Emojis
 from bot import Woolinator
 
 
 log = logging.getLogger(__name__)
 
+
+GITHUB_URL = "https://github.com/Woolyenough/The-Woolinator"
+PRIVACY_POLICY_URL = f"{GITHUB_URL}/blob/main/PRIVACY.md"
 
 
 # Public flag (badge) -> (emoji, display name). Ordered as they should appear next to a user.
@@ -46,6 +49,81 @@ STATUS_DISPLAY = {
     discord.Status.dnd: (Emojis.Presence.dnd, "Do Not Disturb"),
     discord.Status.offline: (Emojis.Presence.offline, "Offline"),
 }
+
+
+class DataReviewView(ui.View):
+    """ Attached to `/data-review`; offers a one-click wipe of everything the bot stores about the user. """
+
+    def __init__(self, cog: "Misc", author_id: int, has_data: bool, timeout: int = 120):
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.author_id = author_id
+        self.message = None
+        self.delete_all.disabled = not has_data
+
+    @ui.button(label="Delete all my data", emoji="\U0001f5d1", style=discord.ButtonStyle.danger)
+    async def delete_all(self, interaction: discord.Interaction, button: ui.Button):
+        embed = discord.Embed(
+            title="Delete everything?",
+            description=(
+                f"{Emojis.warn} This permanently deletes **all** the forementioned data the bot stores about you across **every** server. This cannot be undone."
+            ),
+            colour=discord.Colour.red(),
+        )
+        confirm = ConfirmWipeView(self.cog, self.author_id)
+        confirm.message = self.message
+        await interaction.response.edit_message(embed=embed, view=confirm)
+        self.stop()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.author_id and interaction.user.id != self.author_id:
+            await interaction.response.send_message("not your button to press ,-,", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        await handle_view_edit(self.message, view=self)
+
+
+class ConfirmWipeView(ui.View):
+    """ Final yes/no confirmation before wiping a user's data from `/data-review`. """
+
+    def __init__(self, cog: "Misc", author_id: int, timeout: int = 60):
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.author_id = author_id
+        self.message = None
+
+    @ui.button(label="Yes, delete everything", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: ui.Button):
+        await self.cog._delete_user_data(interaction.user.id)
+        embed = discord.Embed(
+            description=f"{tick(True)} All your stored data has been deleted.",
+            colour=discord.Colour.green(),
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
+
+    @ui.button(label="Cancel", style=discord.ButtonStyle.grey)
+    async def cancel(self, interaction: discord.Interaction, button: ui.Button):
+        embed, has_data = await self.cog._build_data_embed(interaction.user)
+        view = DataReviewView(self.cog, self.author_id, has_data=has_data)
+        view.message = self.message
+        await interaction.response.edit_message(embed=embed, view=view)
+        self.stop()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.author_id and interaction.user.id != self.author_id:
+            await interaction.response.send_message("not your button to press ,-,", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        for item in self.children:
+            item.disabled = True
+        await handle_view_edit(self.message, view=self)
 
 
 class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"):
@@ -144,8 +222,107 @@ class Misc(commands.Cog, name="Miscellaneous", description="Uncategorised stuff"
         embed.set_footer(text=f"Python {platform.python_version()}  ▪  discord.py v{discord.__version__}", icon_url="https://wooly.wtf/files/The-Woolinator/python.png")
 
         view = ui.View()\
-            .add_item(ui.Button(style=discord.ButtonStyle.link, label="GitHub repository", url="https://github.com/Woolyenough/The-Woolinator"))
+            .add_item(ui.Button(style=discord.ButtonStyle.link, label="GitHub repository", url=GITHUB_URL))\
+            .add_item(ui.Button(style=discord.ButtonStyle.link, label="Privacy Policy", url=PRIVACY_POLICY_URL))
         await ctx.reply(embed=embed, view=view)
+
+    @commands.hybrid_command(name="privacy", description="How the bot handles your data")
+    async def privacy(self, ctx: Context):
+        description = [
+            "I only store data for features you choose to use, and I never store your messages or ask for credentials. The Woolinator adheres to Discord's Developer Terms & Policy.",
+            "",
+            f"You can view and remove most of your data yourself, at any time, with the command: {self.bot.cmd_mention('data-review')}",
+            "",
+            f"For any questions, contact `@{self.bot.owner.name}`.",
+        ]
+        embed = discord.Embed(title="Privacy", description='\n'.join(description), colour=0xffe3be)
+        view = ui.View()\
+            .add_item(ui.Button(style=discord.ButtonStyle.link, label="Privacy Policy", url=PRIVACY_POLICY_URL))
+        await ctx.reply(embed=embed, view=view, ephemeral=True)
+
+    def _guild_label(self, guild_id: int) -> str:
+        """ Resolve a guild ID to its name, falling back to the raw ID when the bot has left it. """
+        guild = self.bot.get_guild(guild_id)
+        return guild.name if guild else f"Unknown server (`{guild_id}`)"
+
+    async def _build_data_embed(self, user: discord.User|discord.Member) -> tuple[discord.Embed, bool]:
+        """ Summarise everything stored about `user`; returns the embed and whether any data exists. """
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("SELECT COUNT(*) FROM reminders WHERE user_id = %s", (user.id,))
+            reminder_count = (await cursor.fetchone())[0]
+
+            await cursor.execute("SELECT guild_id FROM birthdays WHERE user_id = %s", (user.id,))
+            birthday_guilds = [row[0] for row in await cursor.fetchall()]
+
+            await cursor.execute("SELECT guild_id, COUNT(*) FROM tags WHERE user_id = %s GROUP BY guild_id", (user.id,))
+            tag_guilds = await cursor.fetchall()
+
+            await cursor.execute("SELECT prefix FROM prefixes WHERE entity_id = %s AND is_guild = 0", (user.id,))
+            prefix_row = await cursor.fetchone()
+
+        tag_total = sum(count for _, count in tag_guilds)
+        has_data = bool(reminder_count or birthday_guilds or tag_guilds or (prefix_row and prefix_row[0]))
+
+        lines = []
+
+        # Reminders are global (not tied to a server)
+        if reminder_count:
+            lines.append(f"⏰ You have **{reminder_count}** reminder{plur(reminder_count)} saved: {self.bot.cmd_mention('reminders')}")
+        else:
+            lines.append("⏰ You have no reminders saved.")
+
+        # Birthdays are stored per-server
+        if birthday_guilds:
+            names = '\n'.join(f"> {self._guild_label(gid)}" for gid in birthday_guilds)
+            lines.append(f"🎂 Your birthday is stored in **{len(birthday_guilds)}** server{plur(len(birthday_guilds))}:\n{names}")
+        else:
+            lines.append("🎂 Your birthday isn't stored anywhere.")
+
+        # Tags are owned per-server
+        if tag_guilds:
+            names = '\n'.join(f"> {self._guild_label(gid)} - {count} tag{plur(count)}" for gid, count in tag_guilds)
+            lines.append(f"🏷️ You own **{tag_total}** tag{plur(tag_total)} across **{len(tag_guilds)}** server{plur(len(tag_guilds))}:\n{names}")
+        else:
+            lines.append("🏷️ You don't own any tags.")
+
+        # Personal prefix
+        if prefix_row and prefix_row[0]:
+            lines.append(f"⌨️ Your personal prefix is `{prefix_row[0]}`: {self.bot.cmd_mention('prefix')}")
+
+
+        embed = discord.Embed(title="Your data", description='\n\n'.join(lines), colour=0xffe3be)
+        embed.set_author(name=f"@{user.name}", icon_url=user.display_avatar.url)
+        embed.set_footer(text="Use the button below to delete everything." if has_data
+                         else "The bot has no personal data stored about you.")
+        return embed, has_data
+
+    async def _delete_user_data(self, user_id: int) -> None:
+        """ Remove all personal data of a user from the database. """
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("SELECT id FROM reminders WHERE user_id = %s", (user_id,))
+            reminder_ids = [row[0] for row in await cursor.fetchall()]
+
+            await cursor.execute("DELETE FROM reminders WHERE user_id = %s", (user_id,))
+            await cursor.execute("DELETE FROM birthdays WHERE user_id = %s", (user_id,))
+            await cursor.execute("DELETE FROM tags WHERE user_id = %s", (user_id,))
+            await cursor.execute("DELETE FROM prefixes WHERE entity_id = %s AND is_guild = 0", (user_id,))
+
+        # Cancel any pending in-memory reminder timers so deleted reminders don't still fire
+        reminder_cog = self.bot.get_cog("Reminders")
+        if reminder_cog is not None:
+            for rid in reminder_ids:
+                task = reminder_cog.asyncio_timers.pop(rid, None)
+                if task is not None:
+                    task.cancel()
+
+        # Drop the cached personal prefix so it stops applying immediately
+        self.bot.user_prefixes.pop(user_id, None)
+
+    @commands.hybrid_command(name="data-review", description="Review and delete the data stored about you")
+    async def data_review(self, ctx: Context):
+        embed, has_data = await self._build_data_embed(ctx.author)
+        view = DataReviewView(self, ctx.author.id, has_data=has_data)
+        view.message = await ctx.reply(embed=embed, view=view, ephemeral=True)
 
     @commands.hybrid_command(name="snipe", description="Check the last deleted message in the current channel")
     @commands.guild_only()

@@ -121,7 +121,7 @@ class Reminder(commands.Cog, name="Reminders", description="Never forget a thing
 
     @property
     def emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name="reminder",id=1337677195694575626)
+        return discord.PartialEmoji(name="\U000023f0")
 
     # --- Tasks ---
 
