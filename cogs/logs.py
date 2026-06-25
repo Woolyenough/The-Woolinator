@@ -248,7 +248,7 @@ class Logging(commands.Cog, name="Logging", description="Configure server event 
 
     @property
     def emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name="📝")
+        return discord.PartialEmoji(name="\U0001f4dd")
 
     # --- Database helpers ---
 
