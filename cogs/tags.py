@@ -7,6 +7,7 @@ from discord.ext import commands
 
 from .utils.views import YesOrNo
 from .utils.context import Context
+from .utils.common import trim_str
 from bot import Woolinator
 
 
@@ -74,7 +75,7 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
             tags = await cursor.fetchall()
         return self.index_tags(tags)
 
-    async def get_user_tags(self, user: discord.Member|discord.User, guild: discord.Guild|None, limit: int|None = None) -> list[dict[str, str]]:
+    async def get_user_tags(self, user: discord.Member|discord.User, guild: discord.Guild|int|None, limit: int|None = None) -> list[dict[str, str]]:
         async with self.bot.get_cursor() as cursor:
 
             if guild is None:
@@ -82,7 +83,8 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
                 params = (user.id,)
             else:
                 query = "SELECT * FROM tags WHERE user_id = %s AND guild_id = %s"
-                params = (user.id, guild.id)
+                guild_id = guild if isinstance(guild, int) else guild.id
+                params = (user.id, guild_id)
                 
             if limit is not None:
                 query += " LIMIT %s"
@@ -92,6 +94,17 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
             tags = await cursor.fetchall()
 
         return self.index_tags(tags)
+
+    async def get_user_tag_guild_ids(self, user: discord.Member|discord.User) -> list[int]:
+        async with self.bot.get_cursor() as cursor:
+            await cursor.execute("SELECT DISTINCT guild_id FROM tags WHERE user_id = %s", (user.id,))
+            guild_ids = await cursor.fetchall()
+
+        return [guild_id for (guild_id,) in guild_ids]
+
+    def guild_label(self, guild_id: int) -> str:
+        guild = self.bot.get_guild(guild_id)
+        return guild.name if guild else f"Unknown Server: {guild_id}"
 
     async def get_guild_tags(self, guild: discord.Guild) -> list[dict[str, str]]:
 
@@ -146,6 +159,24 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
         options = [app_commands.Choice(name=tag['name'], value=tag['name']) for tag in tags]
         return options
 
+    async def owned_tag_guild_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        guild_ids = await self.get_user_tag_guild_ids(interaction.user)
+        current = current.lower()
+        options = []
+
+        for guild_id in guild_ids:
+            label = self.guild_label(guild_id)
+            if current and current not in label.lower() and current not in str(guild_id):
+                continue
+
+            name = f"{trim_str(label, 78)} ({guild_id})"
+            options.append(app_commands.Choice(name=name, value=str(guild_id)))
+
+            if len(options) == 25:
+                break
+
+        return options
+
     # --- Commands ---
 
     @commands.hybrid_group(name="tag", description="Get a tag's contents", fallback="get")
@@ -183,16 +214,28 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
             return
         await ctx.reply("This feature is not implemented yet :grimacing:", ephemeral=True)
 
-    @tag.command(description="Delete all your tags")
-    async def clear(self, ctx: Context):
-        tags = await self.get_user_tags(ctx.author, ctx.guild)
+    @tag.command(description="Delete all your tags in a server")
+    @app_commands.describe(guild="The server whose tags to delete (defaults to all servers)")
+    @app_commands.autocomplete(guild=owned_tag_guild_autocomplete)
+    async def clear(self, ctx: Context, guild: str | None = None):
+        guild_id = None
+        if guild is not None:
+            try:
+                guild_id = int(guild)
+            except ValueError:
+                await ctx.reply("Please choose a server from the autocomplete list.", ephemeral=True)
+                return
+
+        tags = await self.get_user_tags(ctx.author, guild_id)
 
         if len(tags) == 0:
-            await ctx.reply("You do not own any tags!", ephemeral=True)
+            scope = f"in {self.guild_label(guild_id)}" if guild_id is not None else ""
+            await ctx.reply(f"You do not own any tags {scope}!", ephemeral=True)
             return
         
         view = YesOrNo(ctx.author)
-        message = await ctx.reply(f"Are you sure you want to delete ALL your {len(tags)} tags? They'll be gone forever!", view=view)
+        scope = f"in {self.guild_label(guild_id)}" if guild_id is not None else "across all servers"
+        message = await ctx.reply(f"Are you sure you want to delete all your {len(tags)} tags {scope}? They'll be gone forever!", view=view)
         view.message = message
         await view.wait()
 
@@ -200,9 +243,12 @@ class Tags(commands.Cog, name="Tags", description="Create trigger-able messages"
             return
 
         async with self.bot.get_cursor() as cursor:
-            await cursor.execute("DELETE FROM tags WHERE user_id = %s AND guild_id = %s", (ctx.author.id, ctx.guild.id))
+            if guild_id is None:
+                await cursor.execute("DELETE FROM tags WHERE user_id = %s", (ctx.author.id,))
+            else:
+                await cursor.execute("DELETE FROM tags WHERE user_id = %s AND guild_id = %s", (ctx.author.id, guild_id))
         
-        await message.edit(content=f"Successfully deleted the {len(tags)} tags.", embed=None, view=None)
+        await message.edit(content=f"Successfully deleted the {len(tags)} tag{'' if len(tags) == 1 else 's'}.", embed=None, view=None)
 
     @tag.command(description="Create a tag")
     @app_commands.describe(name="The name of the tag", content="The message in the tag")
